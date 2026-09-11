@@ -1,0 +1,26 @@
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+**/appsettings.Local.json
+
+# .NET
+**/bin/
+**/obj/
+*.user
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# Editors and operating systems
+.vs/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Temporary artifacts
+tmp/

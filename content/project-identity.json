@@ -1,0 +1,20 @@
+{
+  "name": "Bağımsız AI Destekli Seyahat Asistanı",
+  "shortDescription": "Bağımsız AI Destekli Seyahat Asistanı, yerel örnek veriler ve yapay zekâ destekli sohbetle otel ve uçuş aramayı, seçenekleri karşılaştırmayı ve eğitim amaçlı rezervasyon simülasyonu oluşturmayı sağlar.",
+  "serviceDisclaimer": "Bağımsız AI Destekli Seyahat Asistanı gerçek rezervasyon oluşturmaz, uçak bileti düzenlemez ve gerçek ödeme almaz; hiçbir işlemi otel, havayolu veya üçüncü taraf sağlayıcılara göndermez.",
+  "scope": {
+    "includes": [
+      "Örnek otel ve uçuş verilerinde form veya sohbet üzerinden arama",
+      "Arama sonuçlarını karşılaştırma ve filtreleme",
+      "Eğitim amaçlı rezervasyon simülasyonu kaydı oluşturma ve yönetme",
+      "Örnek fiyat ve müsaitlik verilerini yönetme"
+    ],
+    "excludes": [
+      "Gerçek kredi kartı veya ödeme işlemi",
+      "Gerçek otel rezervasyonu",
+      "Gerçek uçak bileti düzenleme",
+      "Otel, havayolu veya üçüncü taraf sağlayıcıya işlem gönderme",
+      "Gerçek kimlik veya ödeme bilgisi toplama"
+    ]
+  }
+}
