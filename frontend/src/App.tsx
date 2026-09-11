@@ -166,9 +166,10 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
     }
     setIsSubmitting(true)
     setFeedback({ tone: 'loading', title: 'Örnek sonuçlar hazırlanıyor', message: 'Arama kriterleriniz kontrol ediliyor.' })
-    window.setTimeout(() => {
+    window.setTimeout(async () => {
       const normalized = query.trim().toLocaleLowerCase('tr-TR')
       setIsSubmitting(false)
+      if (hotel) { try { const response = await fetch(`/api/hotels?q=${encodeURIComponent(query.trim())}`); if (response.ok) { const data = await response.json() as Array<{ name: string }>; setResults(data.map(item => item.name)); setFeedback(data.length ? { tone: 'success', title: 'Otel sonuçları hazır', message: 'Aktif katalog kayıtları listelendi.' } : { tone: 'empty', title: 'Sonuç bulunamadı', message: 'Bu kriterlerle eşleşen aktif otel yok.' }); return } } catch { /* demo fallback below */ } }
       if (normalized.includes('hata')) {
         setResults([])
         setFeedback({ tone: 'error', title: 'Arama tamamlanamadı', message: 'Bağlantı kurulamadı. Ayarlarınızı kontrol edip tekrar deneyin.' })

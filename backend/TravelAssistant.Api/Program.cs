@@ -146,6 +146,18 @@ app.MapGet("/api/travel/airports", async (string? q, IConfiguration configuratio
     return Results.Ok(results);
 });
 
+app.MapGet("/api/hotels", async (string? q, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
+    await using var command = new NpgsqlCommand("SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, COALESCE(array_agg(DISTINCT r.name) FILTER (WHERE r.is_active), '{}') FROM hotels h JOIN travel_cities c ON c.id = h.city_id LEFT JOIN hotel_rooms r ON r.hotel_id = h.id WHERE h.is_active AND (@q = '' OR h.name ILIKE @like OR c.name ILIKE @like OR h.district ILIKE @like) GROUP BY h.id, c.name ORDER BY h.rating DESC", connection); command.Parameters.AddWithValue("q", (q ?? "").Trim()); command.Parameters.AddWithValue("like", $"%{(q ?? "").Trim()}%");
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken); var hotels = new List<object>(); while (await reader.ReadAsync(cancellationToken)) hotels.Add(new { id = reader.GetGuid(0), name = reader.GetString(1), city = reader.GetString(2), district = reader.GetString(3), stars = reader.GetInt16(4), rating = reader.GetDecimal(5), description = reader.GetString(6), rooms = reader.GetFieldValue<string[]>(7) }); return Results.Ok(hotels);
+});
+
+app.MapGet("/api/hotels/{id:guid}", async (Guid id, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, r.id, r.name, r.capacity, r.features FROM hotels h JOIN travel_cities c ON c.id = h.city_id LEFT JOIN hotel_rooms r ON r.hotel_id = h.id AND r.is_active WHERE h.id = @id AND h.is_active ORDER BY r.capacity", connection); command.Parameters.AddWithValue("id", id); await using var reader = await command.ExecuteReaderAsync(cancellationToken); if (!await reader.ReadAsync(cancellationToken)) return Results.NotFound(new { message = "Otel bulunamadı veya satışa kapalı." }); var rooms = new List<object>(); var hotel = new { id = reader.GetGuid(0), name = reader.GetString(1), city = reader.GetString(2), district = reader.GetString(3), stars = reader.GetInt16(4), rating = reader.GetDecimal(5), description = reader.GetString(6) }; do { if (!reader.IsDBNull(7)) rooms.Add(new { id = reader.GetGuid(7), name = reader.GetString(8), capacity = reader.GetInt16(9), features = reader.GetFieldValue<string[]>(10) }); } while (await reader.ReadAsync(cancellationToken)); return Results.Ok(new { hotel, rooms });
+});
+
 app.MapGet("/api/health", async (
     IConfiguration configuration,
     ILogger<Program> logger,
