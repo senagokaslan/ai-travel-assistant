@@ -143,6 +143,8 @@ h1 { max-width: 720px; margin: 0; font-size: clamp(44px, 6vw, 76px); line-height
 .profile-fields input, .profile-fields select { border: 1px solid rgba(31, 71, 57, .2); border-radius: 10px; padding: 11px; font: inherit; background: #fff; }
 .airport-hints { display: grid; gap: 4px; margin-top: 4px; }
 .airport-hints button { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 8px; text-align: left; cursor: pointer; }
+.admin-form { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.admin-form input, .admin-form select { padding: 10px; border: 1px solid var(--line); border-radius: 8px; font: inherit; }
 @media (max-width: 560px) { .profile-form { flex-direction: column; } }
 .back-link { display: block; margin-top: 24px; color: #2b6b54; font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; }
 

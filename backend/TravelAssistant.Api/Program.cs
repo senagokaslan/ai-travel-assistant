@@ -128,6 +128,23 @@ app.MapPatch("/api/profile", async (HttpRequest request, ProfileUpdate update, I
 
 app.MapGet("/api/admin/summary", (HttpRequest request) => TryGetSession(request, sessions, out var session) && session.Role == "admin" ? Results.Ok(new { message = "Yönetim erişimi doğrulandı." }) : Results.Forbid());
 
+app.MapPost("/api/admin/hotels", async (AdminHotelRequest request, HttpRequest httpRequest, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    if (!TryGetSession(httpRequest, sessions, out var session) || session.Role != "admin") return Results.Forbid();
+    if (string.IsNullOrWhiteSpace(request.Name) || request.Stars is < 1 or > 5 || request.Rating is < 0 or > 5) return Results.BadRequest(new { message = "Otel adı, yıldız (1-5) ve puan (0-5) geçerli olmalı." });
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("INSERT INTO hotels (name, city_id, district, stars, rating, description) VALUES (@name,@city,@district,@stars,@rating,@description) RETURNING id", connection); command.Parameters.AddWithValue("name", request.Name.Trim()); command.Parameters.AddWithValue("city", request.CityId); command.Parameters.AddWithValue("district", request.District.Trim()); command.Parameters.AddWithValue("stars", request.Stars); command.Parameters.AddWithValue("rating", request.Rating); command.Parameters.AddWithValue("description", request.Description?.Trim() ?? ""); var id = await command.ExecuteScalarAsync(cancellationToken); return Results.Created($"/api/hotels/{id}", new { id, message = "Otel kataloğa eklendi." });
+});
+
+app.MapPatch("/api/admin/hotels/{id:guid}/status", async (Guid id, StatusRequest request, HttpRequest httpRequest, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    if (!TryGetSession(httpRequest, sessions, out var session) || session.Role != "admin") return Results.Forbid(); await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("UPDATE hotels SET is_active=@active WHERE id=@id", connection); command.Parameters.AddWithValue("id", id); command.Parameters.AddWithValue("active", request.IsActive); return await command.ExecuteNonQueryAsync(cancellationToken) == 0 ? Results.NotFound() : Results.Ok(new { message = request.IsActive ? "Otel satışa açıldı." : "Otel satışa kapatıldı." });
+});
+
+app.MapPatch("/api/admin/fares/{id:guid}", async (Guid id, AdminFareRequest request, HttpRequest httpRequest, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    if (!TryGetSession(httpRequest, sessions, out var session) || session.Role != "admin") return Results.Forbid(); if (request.Price <= 0 || request.SeatsAvailable < 0) return Results.BadRequest(new { message = "Fiyat sıfırdan büyük, koltuk sayısı negatif olamaz." }); await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("UPDATE flight_fares SET price=@price, seats_available=@seats, is_active=@active WHERE id=@id", connection); command.Parameters.AddWithValue("id", id); command.Parameters.AddWithValue("price", request.Price); command.Parameters.AddWithValue("seats", request.SeatsAvailable); command.Parameters.AddWithValue("active", request.IsActive); return await command.ExecuteNonQueryAsync(cancellationToken) == 0 ? Results.NotFound() : Results.Ok(new { message = "Bilet seçeneği güncellendi." });
+});
+
 app.MapGet("/api", () => Results.Ok(new
 {
     name = "Bağımsız AI Destekli Seyahat Asistanı API",
@@ -145,6 +162,7 @@ app.MapGet("/api/travel/airports", async (string? q, IConfiguration configuratio
     await using var reader = await command.ExecuteReaderAsync(cancellationToken); var results = new List<object>(); while (await reader.ReadAsync(cancellationToken)) results.Add(new { code = reader.GetString(0).Trim(), name = reader.GetString(1), city = reader.GetString(2), country = reader.GetString(3) });
     return Results.Ok(results);
 });
+app.MapGet("/api/travel/cities", async (IConfiguration configuration, CancellationToken cancellationToken) => { await using var c = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await c.OpenAsync(cancellationToken); await using var cmd = new NpgsqlCommand("SELECT id,name FROM travel_cities ORDER BY name", c); await using var r = await cmd.ExecuteReaderAsync(cancellationToken); var list = new List<object>(); while (await r.ReadAsync(cancellationToken)) list.Add(new { id = r.GetGuid(0), name = r.GetString(1) }); return Results.Ok(list); });
 
 app.MapGet("/api/hotels", async (string? q, DateOnly? checkIn, DateOnly? checkOut, int? adults, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
@@ -283,3 +301,6 @@ record LoginRequest(string Email, string Password);
 record SessionUser(Guid Id, string Name, string Email, string Role);
 record ProfileUpdate(string Name, string? Phone, string? Currency);
 record ReserveRequest(int Passengers);
+record AdminHotelRequest(string Name, Guid CityId, string District, int Stars, decimal Rating, string? Description);
+record AdminFareRequest(decimal Price, int SeatsAvailable, bool IsActive);
+record StatusRequest(bool IsActive);
