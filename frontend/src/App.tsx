@@ -154,6 +154,8 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
   const [results, setResults] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [airportHints, setAirportHints] = useState<Array<{ code: string; name: string; city: string }>>([])
+  useEffect(() => { if (!hotel && query.trim().length >= 2) { fetch(`/api/travel/airports?q=${encodeURIComponent(query)}`).then(async r => r.ok ? setAirportHints(await r.json()) : setAirportHints([])).catch(() => setAirportHints([])) } else setAirportHints([]) }, [hotel, query])
 
   const submitSearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -186,7 +188,7 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
   return (
     <PageFrame eyebrow={hotel ? 'KONAKLAMA ARAMA' : 'UÇUŞ ARAMA'} title={hotel ? 'Size uygun bir otel bulun' : 'Rotanıza uygun uçuşları keşfedin'} description={hotel ? 'Tarih, konum ve kişi sayısıyla örnek otel seçeneklerini karşılaştırın.' : 'Kalkış, varış ve tarihe göre örnek uçuş seçeneklerini inceleyin.'}>
       <form className="search-panel" onSubmit={submitSearch} aria-busy={isSubmitting}>
-        <div className="form-grid"><label>{hotel ? 'Nereye?' : 'Nereden?'}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={hotel ? 'Şehir veya bölge' : 'Şehir / havaalanı'} /></label><label>{hotel ? 'Giriş tarihi' : 'Gidiş tarihi'}<input type="date" /></label><label>{hotel ? 'Gece' : 'Yolcu'}<input type="number" min="1" defaultValue="2" /></label></div>
+        <div className="form-grid"><label>{hotel ? 'Nereye?' : 'Nereden?'}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={hotel ? 'Şehir veya bölge' : 'Şehir / havaalanı'} />{airportHints.length > 0 && <span className="airport-hints">{airportHints.map(item => <button type="button" key={item.code} onClick={() => { setQuery(`${item.city} (${item.code})`); setAirportHints([]) }}><strong>{item.code}</strong> {item.name}</button>)}</span>}</label><label>{hotel ? 'Giriş tarihi' : 'Gidiş tarihi'}<input type="date" /></label><label>{hotel ? 'Gece' : 'Yolcu'}<input type="number" min="1" defaultValue="2" /></label></div>
         <button type="submit" className="primary-action form-button" disabled={isSubmitting}>{isSubmitting ? 'Hazırlanıyor…' : 'Örnek sonuçları getir'}</button>
         <p className="form-note">Bu A03 başlangıç ekranı yalnızca yönlendirme ve sayfa akışını gösterir. Arama kuralları ilgili aşamalarda eklenecektir.</p>
         <p className="demo-hint">Durumları denemek için arama alanına “boş” veya “hata” yazabilirsiniz.</p>

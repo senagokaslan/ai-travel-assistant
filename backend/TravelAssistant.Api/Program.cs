@@ -136,6 +136,16 @@ app.MapGet("/api", () => Results.Ok(new
     health = "/api/health"
 }));
 
+app.MapGet("/api/travel/airports", async (string? q, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    var term = (q ?? "").Trim();
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
+    await using var command = new NpgsqlCommand("SELECT a.iata_code, a.name, c.name, co.name FROM airports a JOIN travel_cities c ON c.id = a.city_id JOIN travel_countries co ON co.id = c.country_id WHERE a.is_active AND (@q = '' OR a.iata_code ILIKE @like OR a.name ILIKE @like OR c.name ILIKE @like) ORDER BY c.name, a.name", connection);
+    command.Parameters.AddWithValue("q", term); command.Parameters.AddWithValue("like", $"%{term}%");
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken); var results = new List<object>(); while (await reader.ReadAsync(cancellationToken)) results.Add(new { code = reader.GetString(0).Trim(), name = reader.GetString(1), city = reader.GetString(2), country = reader.GetString(3) });
+    return Results.Ok(results);
+});
+
 app.MapGet("/api/health", async (
     IConfiguration configuration,
     ILogger<Program> logger,
