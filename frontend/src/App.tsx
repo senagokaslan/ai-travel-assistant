@@ -154,6 +154,7 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
   const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
   const [results, setResults] = useState<string[]>([])
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [checkIn, setCheckIn] = useState(''); const [checkOut, setCheckOut] = useState(''); const [adults, setAdults] = useState('2')
   const [airportHints, setAirportHints] = useState<Array<{ code: string; name: string; city: string }>>([])
   useEffect(() => { if (!hotel && query.trim().length >= 2) { fetch(`/api/travel/airports?q=${encodeURIComponent(query)}`).then(async r => r.ok ? setAirportHints(await r.json()) : setAirportHints([])).catch(() => setAirportHints([])) } else setAirportHints([]) }, [hotel, query])
 
@@ -169,7 +170,7 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
     window.setTimeout(async () => {
       const normalized = query.trim().toLocaleLowerCase('tr-TR')
       setIsSubmitting(false)
-      if (hotel) { try { const response = await fetch(`/api/hotels?q=${encodeURIComponent(query.trim())}`); if (response.ok) { const data = await response.json() as Array<{ name: string }>; setResults(data.map(item => item.name)); setFeedback(data.length ? { tone: 'success', title: 'Otel sonuçları hazır', message: 'Aktif katalog kayıtları listelendi.' } : { tone: 'empty', title: 'Sonuç bulunamadı', message: 'Bu kriterlerle eşleşen aktif otel yok.' }); return } } catch { /* demo fallback below */ } }
+      if (hotel) { try { const params = new URLSearchParams({ q: query.trim() }); if (checkIn) params.set('checkIn', checkIn); if (checkOut) params.set('checkOut', checkOut); params.set('adults', adults); const response = await fetch(`/api/hotels?${params}`); if (response.ok) { const data = await response.json() as Array<{ name: string; totalPrice: number }>; setResults(data.map(item => `${item.name} · ${item.totalPrice > 0 ? `${item.totalPrice} TL` : 'tarih seçilmedi'}`)); setFeedback(data.length ? { tone: 'success', title: 'Otel sonuçları hazır', message: 'Tarih ve kapasiteye uygun aktif katalog kayıtları listelendi.' } : { tone: 'empty', title: 'Sonuç bulunamadı', message: 'Seçtiğiniz tüm gecelerde uygun oda bulunamadı.' }); return } } catch { /* demo fallback below */ } }
       if (normalized.includes('hata')) {
         setResults([])
         setFeedback({ tone: 'error', title: 'Arama tamamlanamadı', message: 'Bağlantı kurulamadı. Ayarlarınızı kontrol edip tekrar deneyin.' })
@@ -189,7 +190,7 @@ function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
   return (
     <PageFrame eyebrow={hotel ? 'KONAKLAMA ARAMA' : 'UÇUŞ ARAMA'} title={hotel ? 'Size uygun bir otel bulun' : 'Rotanıza uygun uçuşları keşfedin'} description={hotel ? 'Tarih, konum ve kişi sayısıyla örnek otel seçeneklerini karşılaştırın.' : 'Kalkış, varış ve tarihe göre örnek uçuş seçeneklerini inceleyin.'}>
       <form className="search-panel" onSubmit={submitSearch} aria-busy={isSubmitting}>
-        <div className="form-grid"><label>{hotel ? 'Nereye?' : 'Nereden?'}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={hotel ? 'Şehir veya bölge' : 'Şehir / havaalanı'} />{airportHints.length > 0 && <span className="airport-hints">{airportHints.map(item => <button type="button" key={item.code} onClick={() => { setQuery(`${item.city} (${item.code})`); setAirportHints([]) }}><strong>{item.code}</strong> {item.name}</button>)}</span>}</label><label>{hotel ? 'Giriş tarihi' : 'Gidiş tarihi'}<input type="date" /></label><label>{hotel ? 'Gece' : 'Yolcu'}<input type="number" min="1" defaultValue="2" /></label></div>
+        <div className="form-grid"><label>{hotel ? 'Nereye?' : 'Nereden?'}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={hotel ? 'Şehir veya bölge' : 'Şehir / havaalanı'} />{airportHints.length > 0 && <span className="airport-hints">{airportHints.map(item => <button type="button" key={item.code} onClick={() => { setQuery(`${item.city} (${item.code})`); setAirportHints([]) }}><strong>{item.code}</strong> {item.name}</button>)}</span>}</label><label>{hotel ? 'Giriş tarihi' : 'Gidiş tarihi'}<input type="date" value={checkIn} onChange={event => setCheckIn(event.target.value)} /></label><label>{hotel ? 'Gece' : 'Yolcu'}<input type="number" min="1" value={adults} onChange={event => setAdults(event.target.value)} /></label>{hotel && <label>Çıkış tarihi<input type="date" value={checkOut} onChange={event => setCheckOut(event.target.value)} /></label>}</div>
         <button type="submit" className="primary-action form-button" disabled={isSubmitting}>{isSubmitting ? 'Hazırlanıyor…' : 'Örnek sonuçları getir'}</button>
         <p className="form-note">Bu A03 başlangıç ekranı yalnızca yönlendirme ve sayfa akışını gösterir. Arama kuralları ilgili aşamalarda eklenecektir.</p>
         <p className="demo-hint">Durumları denemek için arama alanına “boş” veya “hata” yazabilirsiniz.</p>
