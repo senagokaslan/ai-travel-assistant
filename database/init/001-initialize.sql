@@ -20,6 +20,15 @@ CREATE TABLE IF NOT EXISTS app_users (
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone text;
 ALTER TABLE app_users ADD COLUMN IF NOT EXISTS currency char(3) NOT NULL DEFAULT 'TRY';
 
+CREATE TABLE IF NOT EXISTS app_bookings (
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id uuid NOT NULL REFERENCES app_users(id) ON DELETE CASCADE,
+    kind text NOT NULL CHECK (kind IN ('hotel', 'flight')),
+    title text NOT NULL,
+    status text NOT NULL DEFAULT 'simulated',
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
 INSERT INTO app_metadata (key, value)
 VALUES ('schema_version', '1')
 ON CONFLICT (key) DO UPDATE

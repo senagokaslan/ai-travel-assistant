@@ -213,8 +213,9 @@ function ChatPage() {
 }
 
 function BookingsPage() {
-  const navigate = useNavigate()
-  return <PageFrame eyebrow="KAYITLARIM" title="Rezervasyon simülasyonlarınız" description="Oluşturduğunuz eğitim amaçlı kayıtları burada görebilirsiniz."><FeedbackState tone="empty" title="Henüz simülasyon kaydı yok" message="Bir otel veya uçuş seçtiğinizde örnek kaydınız burada görünecek." actionLabel="Otel aramaya git" onAction={() => navigate('/hotels')} /></PageFrame>
+  const navigate = useNavigate(); const [count, setCount] = useState<number | null>(null); const token = sessionStorage.getItem('travel-assistant-demo-session')
+  useEffect(() => { fetch('/api/bookings', { headers: { Authorization: `Bearer ${token ?? ''}` } }).then(async response => { if (response.ok) setCount((await response.json()).length) }).catch(() => setCount(0)) }, [token])
+  return <PageFrame eyebrow="KAYITLARIM" title="Rezervasyon simülasyonlarınız" description="Oluşturduğunuz eğitim amaçlı kayıtları burada görebilirsiniz.">{count === null ? <FeedbackState tone="loading" title="Kayıtlar yükleniyor" message="Kişisel kayıtlarınız getiriliyor." /> : <FeedbackState tone="empty" title={count ? `${count} simülasyon kaydı` : 'Henüz simülasyon kaydı yok'} message="Bu liste yalnızca sizin hesabınıza bağlı kayıtları gösterir." actionLabel="Otel aramaya git" onAction={() => navigate('/hotels')} />}</PageFrame>
 }
 
 function ProfilePage() {

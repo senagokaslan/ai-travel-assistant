@@ -101,6 +101,16 @@ app.MapGet("/api/profile", async (HttpRequest request, IConfiguration configurat
     return await reader.ReadAsync(cancellationToken) ? Results.Ok(new { id = reader.GetGuid(0), name = reader.GetString(1), email = reader.GetString(2), role = reader.GetString(3), phone = reader.GetString(4), currency = reader.GetString(5) }) : Results.NotFound(new { message = "Kullanıcı hesabı bulunamadı." });
 });
 
+app.MapGet("/api/bookings", async (HttpRequest request, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    if (!TryGetSession(request, sessions, out var session)) return Results.Unauthorized();
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
+    await using var command = new NpgsqlCommand("SELECT id, kind, title, status, created_at FROM app_bookings WHERE user_id = @user_id ORDER BY created_at DESC", connection); command.Parameters.AddWithValue("user_id", session.Id);
+    await using var reader = await command.ExecuteReaderAsync(cancellationToken); var bookings = new List<object>();
+    while (await reader.ReadAsync(cancellationToken)) bookings.Add(new { id = reader.GetGuid(0), kind = reader.GetString(1), title = reader.GetString(2), status = reader.GetString(3), createdAt = reader.GetDateTime(4) });
+    return Results.Ok(bookings);
+});
+
 app.MapPatch("/api/profile", async (HttpRequest request, ProfileUpdate update, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     if (!TryGetSession(request, sessions, out var session)) return Results.Unauthorized();
