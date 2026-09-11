@@ -12,8 +12,13 @@ CREATE TABLE IF NOT EXISTS app_users (
     email text NOT NULL UNIQUE,
     password_hash text NOT NULL,
     role text NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    phone text,
+    currency char(3) NOT NULL DEFAULT 'TRY',
     created_at timestamptz NOT NULL DEFAULT now()
 );
+
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS phone text;
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS currency char(3) NOT NULL DEFAULT 'TRY';
 
 INSERT INTO app_metadata (key, value)
 VALUES ('schema_version', '1')
