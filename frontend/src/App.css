@@ -132,6 +132,11 @@ h1 { max-width: 720px; margin: 0; font-size: clamp(44px, 6vw, 76px); line-height
 .demo-login-actions { margin-top: 24px; display: grid; gap: 10px; }
 .demo-login-actions button { border: 0; cursor: pointer; }
 .demo-login-actions .secondary-action { background: transparent; }
+.auth-form { display: grid; gap: 14px; margin-top: 24px; text-align: left; }
+.auth-form label { display: grid; gap: 6px; color: #30483d; font-weight: 700; }
+.auth-form input { width: 100%; box-sizing: border-box; border: 1px solid rgba(31, 71, 57, .2); border-radius: 10px; padding: 12px; font: inherit; background: #fff; }
+.auth-form small { color: #64766d; font-weight: 400; }
+.auth-switch { border: 0; background: transparent; cursor: pointer; font: inherit; }
 .back-link { display: block; margin-top: 24px; color: #2b6b54; font-size: 13px; font-weight: 700; text-align: center; text-decoration: none; }
 
 .status-section { padding: 72px max(20px, calc((100% - 1180px) / 2)) 84px; background: #173d31; }

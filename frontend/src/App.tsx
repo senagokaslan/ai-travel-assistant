@@ -12,7 +12,6 @@ import {
 } from 'react-router-dom'
 import projectIdentity from '../../content/project-identity.json'
 import { AuthProvider } from './auth/AuthContext'
-import { type UserRole } from './auth/context'
 import { useAuth } from './auth/useAuth'
 import { FeedbackState, type FeedbackTone } from './components/FeedbackState'
 import './App.css'
@@ -232,15 +231,20 @@ function AdminRoute() {
 }
 
 function LoginPage() {
-  const { user, signIn } = useAuth()
+  const { user, signIn, register, loading, error, clearError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const returnTo = new URLSearchParams(location.search).get('returnTo') || '/'
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
 
   useEffect(() => { if (user) navigate(returnTo, { replace: true }) }, [navigate, returnTo, user])
 
-  const loginAs = (role: UserRole) => { signIn(role); navigate(returnTo, { replace: true }) }
-  return <main className="login-page"><div className="login-card"><Link className="brand" to="/"><span className="brand-mark">BA</span><span>Bağımsız Seyahat Asistanı</span></Link><p className="eyebrow">DEMO GİRİŞİ</p><h1>Yolculuğunuza başlayın</h1><p>Bu aşamada gerçek hesap sistemi yerine A03 yönlendirmesini göstermek için demo oturumları kullanılır.</p><div className="notice compact" role="note"><span className="notice-icon" aria-hidden="true">i</span><p>{projectIdentity.serviceDisclaimer}</p></div><div className="demo-login-actions"><button type="button" className="primary-action" onClick={() => loginAs('user')}>Demo kullanıcı olarak gir</button><button type="button" className="secondary-action" onClick={() => loginAs('admin')}>Demo admin olarak gir</button></div><Link className="back-link" to="/">Ana sayfaya dön</Link></div></main>
+  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); clearError(); if (mode === 'register' && password !== confirm) return; const ok = mode === 'login' ? await signIn(email, password) : await register(name, email, password); if (ok) navigate(returnTo, { replace: true }) }
+  return <main className="login-page"><div className="login-card"><Link className="brand" to="/"><span className="brand-mark">BA</span><span>Bağımsız Seyahat Asistanı</span></Link><p className="eyebrow">HESAP {mode === 'login' ? 'GİRİŞİ' : 'KAYDI'}</p><h1>{mode === 'login' ? 'Yolculuğunuza başlayın' : 'Yeni hesabınızı oluşturun'}</h1><p>{mode === 'login' ? 'Rezervasyon simülasyonlarınızı hesabınıza bağlamak için giriş yapın.' : 'Ad, e-posta ve güçlü bir parola ile hesabınızı oluşturun.'}</p><div className="notice compact" role="note"><span className="notice-icon" aria-hidden="true">i</span><p>{projectIdentity.serviceDisclaimer}</p></div><form className="auth-form" onSubmit={submit} noValidate>{mode === 'register' && <label>Ad soyad<input value={name} onChange={event => setName(event.target.value)} autoComplete="name" required minLength={2} /></label>}<label>E-posta<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required /></label><label>Parola<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required /><small>En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.</small></label>{mode === 'register' && <label>Parola tekrarı<input type="password" value={confirm} onChange={event => setConfirm(event.target.value)} autoComplete="new-password" required /></label>}{error && <FeedbackState tone="error" title="İşlem tamamlanamadı" message={error} />}{loading && <FeedbackState tone="loading" title="İşleniyor" message="Lütfen bekleyin." />}<button type="submit" className="primary-action" disabled={loading}>{mode === 'login' ? 'Giriş yap' : 'Hesap oluştur'}</button></form><button className="back-link auth-switch" type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); clearError() }}>{mode === 'login' ? 'Yeni hesap oluştur' : 'Zaten hesabım var'}</button><Link className="back-link" to="/">Ana sayfaya dön</Link></div></main>
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
