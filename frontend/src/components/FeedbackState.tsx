@@ -1,10 +1,11 @@
 import type { ReactNode } from 'react'
 
-export type FeedbackTone = 'loading' | 'empty' | 'error' | 'success'
+export type FeedbackTone = 'loading' | 'empty' | 'warning' | 'error' | 'success'
 
 const toneIcon: Record<FeedbackTone, string> = {
   loading: '…',
   empty: '—',
+  warning: '!',
   error: '!',
   success: '✓',
 }

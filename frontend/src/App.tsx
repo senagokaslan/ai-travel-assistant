@@ -14,7 +14,7 @@ import projectIdentity from '../../content/project-identity.json'
 import { AuthProvider } from './auth/AuthContext'
 import { useAuth } from './auth/useAuth'
 import { FeedbackState, type FeedbackTone } from './components/FeedbackState'
-import { HotelResultsPage, HotelSearchPage } from './components/HotelSearch'
+import { HotelDetailPage, HotelResultsPage, HotelSearchPage } from './components/HotelSearch'
 import { Icon } from './components/Icon'
 import './App.css'
 
@@ -72,6 +72,7 @@ function App() {
             <Route index element={<HomePage />} />
             <Route path="hotels" element={<HotelSearchPage />} />
             <Route path="hotels/results" element={<HotelResultsPage />} />
+            <Route path="hotels/:id" element={<HotelDetailPage />} />
             <Route path="flights" element={<FlightSearchPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="bookings" element={<ProtectedRoute><BookingsPage /></ProtectedRoute>} />

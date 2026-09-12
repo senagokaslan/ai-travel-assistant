@@ -202,6 +202,20 @@ app.MapGet("/api/hotels", async (string? q, DateOnly? checkIn, DateOnly? checkOu
     return Results.Ok(hotels);
 });
 
+app.MapGet("/api/hotels/{id:guid}/availability", async (Guid id, DateOnly? checkIn, DateOnly? checkOut, int? adults, int? rooms, int? children, string? childAges, IConfiguration configuration, CancellationToken cancellationToken) =>
+{
+    if (checkIn is null || checkOut is null) return Results.BadRequest(new { message = "Giriş ve çıkış tarihleri zorunludur." });
+    var arrival = checkIn.GetValueOrDefault(); var departure = checkOut.GetValueOrDefault();
+    if (arrival < DateOnly.FromDateTime(DateTime.Now)) return Results.BadRequest(new { message = "Geçmiş tarih için arama yapılamaz." });
+    if (departure <= arrival || departure.DayNumber - arrival.DayNumber > 30) return Results.BadRequest(new { message = "Tarih aralığı geçersizdir." });
+    if (adults is null or < 1 or > 20 || rooms is null or < 1 or > 8 || children is null or < 0 or > 8 || adults < rooms) return Results.BadRequest(new { message = "Oda ve misafir bilgileri geçersizdir." });
+    var ages = string.IsNullOrWhiteSpace(childAges) ? Array.Empty<int>() : childAges.Split(',').Select(value => int.TryParse(value, out var age) ? age : -1).ToArray();
+    if (ages.Length != children || ages.Any(age => age is < 0 or > 17)) return Results.BadRequest(new { message = "Çocuk sayısı ile çocuk yaşları eşleşmelidir." });
+    await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
+    var hotel = await HotelAvailabilityService.GetByIdAsync(connection, id, arrival, departure, rooms.Value, adults.Value + children.Value, cancellationToken);
+    return hotel is null ? Results.NotFound(new { message = "Otel kaldırılmış veya seçilen tarihlerde artık müsait değil." }) : Results.Ok(hotel);
+});
+
 app.MapGet("/api/hotels/{id:guid}", async (Guid id, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, r.id, r.name, r.capacity, r.features FROM hotels h JOIN travel_cities c ON c.id = h.city_id LEFT JOIN hotel_rooms r ON r.hotel_id = h.id AND r.is_active WHERE h.id = @id AND h.is_active ORDER BY r.capacity", connection); command.Parameters.AddWithValue("id", id); await using var reader = await command.ExecuteReaderAsync(cancellationToken); if (!await reader.ReadAsync(cancellationToken)) return Results.NotFound(new { message = "Otel bulunamadı veya satışa kapalı." }); var rooms = new List<object>(); var hotel = new { id = reader.GetGuid(0), name = reader.GetString(1), city = reader.GetString(2), district = reader.GetString(3), stars = reader.GetInt16(4), rating = reader.GetDecimal(5), description = reader.GetString(6) }; do { if (!reader.IsDBNull(7)) rooms.Add(new { id = reader.GetGuid(7), name = reader.GetString(8), capacity = reader.GetInt16(9), features = reader.GetFieldValue<string[]>(10) }); } while (await reader.ReadAsync(cancellationToken)); return Results.Ok(new { hotel, rooms });
