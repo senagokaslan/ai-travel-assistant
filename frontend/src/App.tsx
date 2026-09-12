@@ -14,6 +14,7 @@ import projectIdentity from '../../content/project-identity.json'
 import { AuthProvider } from './auth/AuthContext'
 import { useAuth } from './auth/useAuth'
 import { FeedbackState, type FeedbackTone } from './components/FeedbackState'
+import { HotelResultsPage, HotelSearchPage } from './components/HotelSearch'
 import './App.css'
 
 type HealthState = 'loading' | 'healthy' | 'unhealthy'
@@ -53,7 +54,8 @@ function App() {
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<HomePage />} />
-            <Route path="hotels" element={<SearchPage kind="hotel" />} />
+            <Route path="hotels" element={<HotelSearchPage />} />
+            <Route path="hotels/results" element={<HotelResultsPage />} />
             <Route path="flights" element={<SearchPage kind="flight" />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="bookings" element={<ProtectedRoute><BookingsPage /></ProtectedRoute>} />

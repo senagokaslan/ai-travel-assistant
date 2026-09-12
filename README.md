@@ -72,6 +72,7 @@ Gereksinimler: .NET 8 SDK, Node.js 20 veya üzeri, npm ve yerel PostgreSQL 16 ve
 | --- | --- | --- |
 | `/` | Herkes | Ana sayfa ve sistem durumu |
 | `/hotels` | Herkes | Otel arama başlangıç ekranı |
+| `/hotels/results` | Herkes | Doğrulanmış ölçütleri URL'de koruyan otel sonuç ekranı |
 | `/flights` | Herkes | Uçuş arama başlangıç ekranı |
 | `/chat` | Herkes | Sohbetle arama başlangıç ekranı |
 | `/bookings` | Giriş gerekli | Kullanıcının simülasyon kayıtları |
