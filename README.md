@@ -39,15 +39,11 @@ Gereksinimler: .NET 8 SDK, Node.js 20 veya üzeri, npm ve yerel PostgreSQL 16 ve
    Copy-Item backend/TravelAssistant.Api/appsettings.Local.example.json backend/TravelAssistant.Api/appsettings.Local.json
    ```
 
-   Örnek dosyadaki `local-dev-only` değerini yerel PostgreSQL kullanıcınızın parolasıyla değiştirin. Paylaşılan veya uzak bir ortamda güçlü ve gizli bir parola kullanın.
+   Bağlantı dizesindeki parola değerini PostgreSQL kurulumu sırasında belirlediğiniz yerel `postgres` yönetici parolasıyla değiştirin. Bu parola yalnızca Git tarafından yok sayılan yerel dosyada kalır.
 
-2. Yerel PostgreSQL servisini başlatın. PostgreSQL kurulumu sırasında `travel_assistant` veritabanını ve `travel_assistant` kullanıcısını oluşturun; bağlantı bilgileri `appsettings.Local.json` ile aynı olmalıdır. Şemayı uygulamak için pgAdmin Query Tool'da veya `psql` ile şu dosyayı çalıştırın:
+2. Yerel PostgreSQL servisini başlatın. Geliştirme ortamında backend ilk açılışta eksik `travel_assistant` rolünü ve veritabanını otomatik oluşturur; sürümlü SQL migration'larını uygular. pgAdmin'de elle veritabanı, tablo veya örnek veri oluşturmanız gerekmez.
 
-   ```text
-   database/init/001-initialize.sql
-   ```
-
-   Docker kullanmak isterseniz aynı veritabanı ayarlarını `docker-compose.yml` ile de başlatabilirsiniz; bu zorunlu değildir.
+   Docker kullanmak isterseniz aynı veritabanı ayarlarını `docker-compose.yml` ile de başlatabilirsiniz; bu zorunlu değildir. Paylaşılan veya canlı ortamlarda otomatik veritabanı oluşturma kapalıdır; yalnızca mevcut veritabanına bekleyen migration'lar uygulanır.
 
 3. Bir terminalde backend'i başlatın:
 
@@ -85,6 +81,7 @@ Korumalı bir adrese anonim gidildiğinde kullanıcı `/login?returnTo=...` adre
 ## Bağlantı sorunları
 
 - Sağlık kontrolü “bağlantı ayarı bulunamadı” diyorsa `appsettings.Local.json` dosyasını oluşturun veya `ConnectionStrings__Postgres` ortam değişkenini tanımlayın.
-- “PostgreSQL'e bağlanılamadı” mesajında `docker compose ps` çıktısını, portu ve iki yerel örnekteki kullanıcı/parola değerlerinin eşleştiğini kontrol edin.
+- Otomatik kurulum başarısızsa PostgreSQL servisinin çalıştığını ve yerel ayardaki parolanın `postgres` yönetici parolasıyla aynı olduğunu kontrol edin. Ayrı yönetici bilgisi gereken ortamlarda `ConnectionStrings__PostgresAdmin` tanımlanabilir.
+- Yeni migration eklemek için `database/init` altına sıralı yeni bir `.sql` dosyası ekleyin. Uygulanan dosyalar `schema_migrations` tablosunda izlenir ve yeniden çalıştırılmaz.
 - PostgreSQL servisi kurulu değilse Windows PostgreSQL kurulumunu tamamlayın ve servis durumunu `Get-Service postgresql*` ile kontrol edin. Docker veya WSL gerekmez.
 - `.env` ve `appsettings.Local.json` Git tarafından yok sayılır. Gerçek parolaları, API anahtarlarını veya bağlantı bilgilerini örnek dosyalara eklemeyin.

@@ -24,6 +24,12 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 var sessions = new ConcurrentDictionary<string, SessionUser>();
 
+await DatabaseMigrator.InitializeAsync(
+    app.Configuration,
+    app.Environment.IsDevelopment(),
+    app.Logger,
+    CancellationToken.None);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

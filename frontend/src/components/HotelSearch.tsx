@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { FeedbackState } from './FeedbackState'
+import { Icon } from './Icon'
 
 type SearchForm = {
   location: string
@@ -47,6 +48,11 @@ function addDays(value: string, days: number) {
 
 function daysBetween(start: string, end: string) {
   return Math.round((new Date(`${end}T12:00:00`).getTime() - new Date(`${start}T12:00:00`).getTime()) / 86_400_000)
+}
+
+function formatDate(value: string) {
+  if (!value) return '—'
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T12:00:00`))
 }
 
 function normalize(value: string) {
@@ -109,6 +115,16 @@ function ErrorText({ message }: { message?: string }) {
   return message ? <small className="field-error">{message}</small> : null
 }
 
+function ResultsFilters({ form, onUpdate, onToggleFeature, onClear }: { form: SearchForm; onUpdate: (key: string, value: string) => void; onToggleFeature: (feature: string) => void; onClear: () => void }) {
+  return <div className="results-filter-panel">
+    <div className="filter-panel-heading"><div><Icon name="filter" size={17} /><h2>Filtreler</h2></div><button type="button" onClick={onClear}>Temizle</button></div>
+    <label className="form-field"><span>En az yıldız</span><select value={form.stars} onChange={event => onUpdate('stars', event.target.value)}><option value="">Tümü</option><option value="3">3 yıldız ve üzeri</option><option value="4">4 yıldız ve üzeri</option><option value="5">5 yıldız</option></select></label>
+    <fieldset className="filter-group"><legend>Toplam örnek fiyat</legend><div className="price-filter-row"><label><span>En düşük</span><input type="number" min="0" step="100" value={form.minPrice} onChange={event => onUpdate('minPrice', event.target.value)} placeholder="0 TL" /></label><label><span>En yüksek</span><input type="number" min="1" step="100" value={form.maxPrice} onChange={event => onUpdate('maxPrice', event.target.value)} placeholder="Sınır yok" /></label></div></fieldset>
+    <label className="form-field"><span>Pansiyon</span><select value={form.board} onChange={event => onUpdate('board', event.target.value)}><option value="">Tümü</option><option value="room">Sadece oda</option><option value="breakfast">Kahvaltı dahil</option><option value="half">Yarım pansiyon</option><option value="all">Her şey dahil</option></select></label>
+    <fieldset className="filter-group"><legend>Özellikler</legend><div className="filter-checks">{FEATURE_OPTIONS.map(feature => <label key={feature}><input type="checkbox" checked={form.features.includes(feature)} onChange={() => onToggleFeature(feature)} /><span>{feature}</span></label>)}</div></fieldset>
+  </div>
+}
+
 export function HotelSearchPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -117,6 +133,7 @@ export function HotelSearchPage() {
   const [checking, setChecking] = useState(false)
   const [suggestions, setSuggestions] = useState<LocationOption[]>([])
   const [showFilters, setShowFilters] = useState(Boolean(form.stars || form.minPrice || form.maxPrice || form.board || form.features.length))
+  const activeFilterCount = [form.stars, form.minPrice, form.maxPrice, form.board, ...form.features].filter(Boolean).length
 
   useEffect(() => {
     const term = form.location.trim()
@@ -126,7 +143,7 @@ export function HotelSearchPage() {
       fetch(`/api/hotels/locations?q=${encodeURIComponent(term)}`, { signal: controller.signal })
         .then(async response => response.ok ? setSuggestions(await response.json() as LocationOption[]) : setSuggestions([]))
         .catch(() => undefined)
-    }, 220)
+    }, 180)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [form.location])
 
@@ -144,7 +161,8 @@ export function HotelSearchPage() {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextErrors = validate(form)
-    if (Object.keys(nextErrors).length) { setErrors(nextErrors); return }
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
     setChecking(true)
     try {
       const response = await fetch(`/api/hotels/locations?q=${encodeURIComponent(form.location.trim())}`)
@@ -153,57 +171,65 @@ export function HotelSearchPage() {
       const term = normalize(form.location)
       const supported = options.some(option => [option.label, option.city, option.district ?? ''].some(value => normalize(value) === term))
       if (!supported) {
-        setErrors({ location: 'Bu şehir veya otel şu anda desteklenmiyor. Listeden bir seçenek belirleyin.' })
+        setErrors({ location: 'Bu şehir veya otel katalogda bulunmuyor. Önerilerden birini seçin.' })
         return
       }
       navigate(`/hotels/results?${toParams(form).toString()}`)
     } catch {
-      setErrors({ form: 'Konumlar doğrulanamadı. Bağlantıyı kontrol edip tekrar deneyin.' })
-    } finally {
-      setChecking(false)
-    }
+      setErrors({ form: 'Konum kataloğuna ulaşılamadı. API bağlantısını kontrol edip tekrar deneyin.' })
+    } finally { setChecking(false) }
   }
 
   return (
-    <section className="page-frame hotel-search-page">
-      <div className="page-heading"><p className="eyebrow">KONAKLAMA ARAMA</p><h1>Doğru oteli, tüm ayrıntılarıyla arayın</h1><p className="lead">Konaklama bilgilerinizi girin; yalnızca ölçütlerinize uyan katalog seçeneklerini gösterelim.</p></div>
-      <form className="search-panel hotel-search-form" onSubmit={submit} noValidate aria-busy={checking}>
-        <div className="form-legend"><strong>Konaklama bilgileri</strong><span><i aria-hidden="true">*</i> Zorunlu alan</span></div>
-        {(Object.keys(errors).length > 0) && <FeedbackState tone="error" title="Bilgileri kontrol edin" message={errors.form ?? 'İşaretli alanları düzelttikten sonra yeniden arayın.'} />}
+    <main className="page-frame hotel-search-page" data-testid="hotel-search-page">
+      <header className="compact-page-heading"><div><span className="section-label">OTELLER</span><h1>Konaklama ara</h1></div><p>Şehir, tarih ve misafir bilgilerini gir; tüm gecelerde uygun olan yerel katalog seçeneklerini karşılaştır.</p></header>
+      <form className="search-card hotel-search-form" onSubmit={submit} noValidate aria-busy={checking}>
+        <div className="search-card-heading"><div><span className="section-label">KONAKLAMA BİLGİLERİ</span><h2>Nerede kalmak istersin?</h2></div><span><i>*</i> Zorunlu alan</span></div>
+        {Object.keys(errors).length > 0 && <FeedbackState tone="error" title="Arama bilgilerini kontrol edin" message={errors.form ?? 'İşaretli alanları düzelttikten sonra yeniden arayın.'} />}
         <div className="hotel-form-grid">
-          <label className="location-field"><span>Şehir veya otel <i>*</i></span><input value={form.location} onChange={event => { update('location', event.target.value); if (event.target.value.trim().length < 2) setSuggestions([]) }} placeholder="Örn. İstanbul veya Galata Meydan Otel" autoComplete="off" required aria-invalid={Boolean(errors.location)} />
-            {suggestions.length > 0 && <span className="location-suggestions">{suggestions.map(option => <button type="button" key={option.key} onClick={() => { update('location', option.label); setSuggestions([]) }}><b>{option.type === 'city' ? 'Şehir' : 'Otel'}</b><span>{option.label}</span>{option.type === 'hotel' && <small>{option.city}{option.district ? ` · ${option.district}` : ''}</small>}</button>)}</span>}
+          <label className="form-field location-field"><span>Şehir veya otel<i>*</i></span><input value={form.location} onChange={event => { update('location', event.target.value); if (event.target.value.trim().length < 2) setSuggestions([]) }} placeholder="Örn. İstanbul veya Galata Meydan Otel" autoComplete="off" required aria-invalid={Boolean(errors.location)} />
+            {suggestions.length > 0 && <span className="suggestion-popover location-suggestions">{suggestions.map(option => <button type="button" key={option.key} onClick={() => { update('location', option.label); setSuggestions([]) }}><b>{option.type === 'city' ? 'Şehir' : 'Otel'}</b><span>{option.label}<small>{option.type === 'hotel' ? `${option.city}${option.district ? ` · ${option.district}` : ''}` : 'Tüm katalog seçenekleri'}</small></span></button>)}</span>}
             <ErrorText message={errors.location} />
           </label>
-          <label><span>Giriş tarihi <i>*</i></span><input type="date" min={localToday()} value={form.checkIn} onChange={event => update('checkIn', event.target.value)} required aria-invalid={Boolean(errors.checkIn)} /><ErrorText message={errors.checkIn} /></label>
-          <label><span>Çıkış tarihi <i>*</i></span><input type="date" min={form.checkIn ? addDays(form.checkIn, 1) : localToday()} max={form.checkIn ? addDays(form.checkIn, MAX_NIGHTS) : undefined} value={form.checkOut} onChange={event => update('checkOut', event.target.value)} required aria-invalid={Boolean(errors.checkOut)} /><ErrorText message={errors.checkOut} /></label>
-          <label><span>Oda <i>*</i></span><select value={form.rooms} onChange={event => update('rooms', event.target.value)} aria-invalid={Boolean(errors.rooms)}>{Array.from({ length: 8 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} oda</option>)}</select><ErrorText message={errors.rooms} /></label>
-          <label><span>Yetişkin <i>*</i></span><select value={form.adults} onChange={event => update('adults', event.target.value)} aria-invalid={Boolean(errors.adults)}>{Array.from({ length: 20 }, (_, i) => <option key={i + 1} value={i + 1}>{i + 1} yetişkin</option>)}</select><ErrorText message={errors.adults} /></label>
-          <label><span>Çocuk <i>*</i></span><select value={form.childCount} onChange={event => updateChildCount(event.target.value)} aria-invalid={Boolean(errors.childCount)}>{Array.from({ length: 9 }, (_, i) => <option key={i} value={i}>{i} çocuk</option>)}</select><ErrorText message={errors.childCount} /></label>
+          <label className="form-field"><span>Giriş tarihi<i>*</i></span><input type="date" min={localToday()} value={form.checkIn} onChange={event => update('checkIn', event.target.value)} required aria-invalid={Boolean(errors.checkIn)} /><ErrorText message={errors.checkIn} /></label>
+          <label className="form-field"><span>Çıkış tarihi<i>*</i></span><input type="date" min={form.checkIn ? addDays(form.checkIn, 1) : localToday()} max={form.checkIn ? addDays(form.checkIn, MAX_NIGHTS) : undefined} value={form.checkOut} onChange={event => update('checkOut', event.target.value)} required aria-invalid={Boolean(errors.checkOut)} /><ErrorText message={errors.checkOut} /></label>
         </div>
-        {form.childAges.length > 0 && <fieldset className="child-ages"><legend>Çocuk yaşları <i>*</i></legend><p>Konaklama başlangıcındaki yaşları seçin.</p><div>{form.childAges.map((age, index) => <label key={index}><span>{index + 1}. çocuk</span><select value={age} onChange={event => { const ages = [...form.childAges]; ages[index] = event.target.value; update('childAges', ages) }} aria-label={`${index + 1}. çocuğun yaşı`}><option value="">Yaş seçin</option>{Array.from({ length: 18 }, (_, i) => <option key={i} value={i}>{i} yaş</option>)}</select></label>)}</div><ErrorText message={errors.childAges ?? errors.guests} /></fieldset>}
+        <div className="occupancy-grid" aria-label="Misafir bilgileri">
+          <div className="occupancy-title"><span className="section-label">MİSAFİRLER</span><p>Her oda için en az bir yetişkin seçin.</p></div>
+          <label className="form-field"><span>Oda<i>*</i></span><select value={form.rooms} onChange={event => update('rooms', event.target.value)} aria-invalid={Boolean(errors.rooms)}>{Array.from({ length: 8 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} oda</option>)}</select><ErrorText message={errors.rooms} /></label>
+          <label className="form-field"><span>Yetişkin<i>*</i></span><select value={form.adults} onChange={event => update('adults', event.target.value)} aria-invalid={Boolean(errors.adults)}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select><ErrorText message={errors.adults} /></label>
+          <label className="form-field"><span>Çocuk<i>*</i></span><select value={form.childCount} onChange={event => updateChildCount(event.target.value)} aria-invalid={Boolean(errors.childCount)}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select><ErrorText message={errors.childCount} /></label>
+        </div>
+        {form.childAges.length > 0 && <fieldset className="child-ages"><legend>Çocuk yaşları <i>*</i></legend><p>Konaklama başlangıcındaki yaşları seçin.</p><div>{form.childAges.map((age, index) => <label className="form-field" key={index}><span>{index + 1}. çocuk</span><select value={age} onChange={event => { const ages = [...form.childAges]; ages[index] = event.target.value; update('childAges', ages) }} aria-label={`${index + 1}. çocuğun yaşı`}><option value="">Yaş seçin</option>{Array.from({ length: 18 }, (_, ageValue) => <option key={ageValue} value={ageValue}>{ageValue} yaş</option>)}</select></label>)}</div><ErrorText message={errors.childAges ?? errors.guests} /></fieldset>}
         {!form.childAges.length && <ErrorText message={errors.guests} />}
-        <button className="filter-toggle" type="button" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}><span>İsteğe bağlı filtreler</span><small>Yıldız, fiyat, pansiyon ve özellik</small><b>{showFilters ? '−' : '+'}</b></button>
+
+        <button className="filter-toggle" type="button" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}><span><b>İsteğe bağlı filtreler</b><small>Yıldız, toplam fiyat, pansiyon ve özellik</small></span>{activeFilterCount > 0 && <em>{activeFilterCount} seçili</em>}<i aria-hidden="true">{showFilters ? '−' : '+'}</i></button>
         {showFilters && <div className="optional-filters">
-          <label><span>En az yıldız</span><select value={form.stars} onChange={event => update('stars', event.target.value)}><option value="">Fark etmez</option><option value="3">3 yıldız ve üzeri</option><option value="4">4 yıldız ve üzeri</option><option value="5">5 yıldız</option></select></label>
-          <label><span>En düşük toplam fiyat</span><input type="number" min="0" step="100" value={form.minPrice} onChange={event => update('minPrice', event.target.value)} placeholder="₺" aria-invalid={Boolean(errors.minPrice)} /><ErrorText message={errors.minPrice} /></label>
-          <label><span>En yüksek toplam fiyat</span><input type="number" min="1" step="100" value={form.maxPrice} onChange={event => update('maxPrice', event.target.value)} placeholder="₺" aria-invalid={Boolean(errors.maxPrice)} /><ErrorText message={errors.maxPrice} /></label>
-          <label><span>Pansiyon</span><select value={form.board} onChange={event => update('board', event.target.value)}><option value="">Fark etmez</option><option value="room">Sadece oda</option><option value="breakfast">Kahvaltı dahil</option><option value="half">Yarım pansiyon</option><option value="all">Her şey dahil</option></select></label>
+          <label className="form-field"><span>En az yıldız</span><select value={form.stars} onChange={event => update('stars', event.target.value)}><option value="">Fark etmez</option><option value="3">3 yıldız ve üzeri</option><option value="4">4 yıldız ve üzeri</option><option value="5">5 yıldız</option></select></label>
+          <label className="form-field"><span>En düşük toplam</span><input type="number" min="0" step="100" value={form.minPrice} onChange={event => update('minPrice', event.target.value)} placeholder="TL" aria-invalid={Boolean(errors.minPrice)} /><ErrorText message={errors.minPrice} /></label>
+          <label className="form-field"><span>En yüksek toplam</span><input type="number" min="1" step="100" value={form.maxPrice} onChange={event => update('maxPrice', event.target.value)} placeholder="TL" aria-invalid={Boolean(errors.maxPrice)} /><ErrorText message={errors.maxPrice} /></label>
+          <label className="form-field"><span>Pansiyon</span><select value={form.board} onChange={event => update('board', event.target.value)}><option value="">Fark etmez</option><option value="room">Sadece oda</option><option value="breakfast">Kahvaltı dahil</option><option value="half">Yarım pansiyon</option><option value="all">Her şey dahil</option></select></label>
           <fieldset className="feature-filter"><legend>Özellikler</legend>{FEATURE_OPTIONS.map(feature => <label key={feature}><input type="checkbox" checked={form.features.includes(feature)} onChange={() => update('features', form.features.includes(feature) ? form.features.filter(item => item !== feature) : [...form.features, feature])} /><span>{feature}</span></label>)}</fieldset>
         </div>}
-        <div className="search-submit-row"><p>Bugün giriş yapabilirsiniz. En fazla {MAX_NIGHTS} gecelik arama desteklenir.</p><button type="submit" className="primary-action" disabled={checking}>{checking ? 'Kontrol ediliyor…' : 'Otelleri ara'} <span aria-hidden="true">→</span></button></div>
+        <div className="search-action-row"><p>Bugün giriş yapabilirsiniz. En fazla {MAX_NIGHTS} gecelik arama desteklenir.</p><button type="submit" className="primary-action" disabled={checking}>{checking ? 'Konum kontrol ediliyor…' : 'Otelleri ara'} <span aria-hidden="true">→</span></button></div>
       </form>
-    </section>
+    </main>
   )
 }
 
+function HotelLoadingCards() {
+  return <div className="loading-results" aria-label="Uygun oteller aranıyor"><div className="loading-label"><span className="spinner" aria-hidden="true" />Uygun oteller aranıyor</div>{[1, 2, 3].map(item => <div className="skeleton-card hotel-skeleton" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
+}
+
 export function HotelResultsPage() {
-  const [params] = useSearchParams()
+  const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const form = useMemo(() => formFromParams(params), [params])
   const errors = useMemo(() => validate(form), [form])
   const invalidSearch = Object.keys(errors).length > 0
   const [results, setResults] = useState<HotelResult[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [sort, setSort] = useState<'rating' | 'price-asc' | 'price-desc'>('rating')
   const nights = form.checkIn && form.checkOut ? daysBetween(form.checkIn, form.checkOut) : 0
 
   useEffect(() => {
@@ -219,19 +245,60 @@ export function HotelResultsPage() {
         const filtered = data.filter(hotel => hotel.stars >= wantedStars && hotel.totalPrice >= min && hotel.totalPrice <= max)
           .filter(hotel => form.features.every(feature => hotel.features.includes(feature)))
           .filter(hotel => !form.board || (form.board === 'breakfast' ? hotel.features.includes('Kahvaltı') : form.board === 'room' ? !hotel.features.includes('Kahvaltı') : false))
-        setResults(filtered); setState('ready')
+        setResults(filtered)
+        setState('ready')
       }).catch(error => { if (error.name !== 'AbortError') setState('error') })
     return () => controller.abort()
   }, [form, invalidSearch])
 
   const searchQuery = toParams(form).toString()
   const visibleState = invalidSearch ? 'error' : state
-  return <section className="page-frame hotel-results-page">
-    <div className="results-heading"><div><p className="eyebrow">OTEL SONUÇLARI</p><h1>{form.location || 'Arama sonuçları'}</h1><p>{form.checkIn} → {form.checkOut} · {nights} gece · {form.rooms} oda · {form.adults} yetişkin{Number(form.childCount) ? ` · ${form.childCount} çocuk (${form.childAges.join(', ')} yaş)` : ''}</p></div><Link className="secondary-action modify-search" to={`/hotels?${searchQuery}`}>Aramayı değiştir</Link></div>
-    <div className="criteria-strip"><span>{form.stars ? `${form.stars}+ yıldız` : 'Tüm yıldızlar'}</span><span>{form.minPrice || form.maxPrice ? `${form.minPrice || '0'}–${form.maxPrice || '∞'} TL` : 'Fiyat sınırı yok'}</span><span>{form.board ? ({ room: 'Sadece oda', breakfast: 'Kahvaltı dahil', half: 'Yarım pansiyon', all: 'Her şey dahil' } as Record<string, string>)[form.board] : 'Tüm pansiyonlar'}</span>{form.features.map(feature => <span key={feature}>{feature}</span>)}</div>
-    {visibleState === 'loading' && <FeedbackState tone="loading" title="Uygun oteller aranıyor" message="Tarih, kapasite ve filtreleriniz katalogda kontrol ediliyor." />}
-    {visibleState === 'error' && <FeedbackState tone="error" title="Sonuçlar gösterilemedi" message={invalidSearch ? 'Arama bilgileri geçersiz veya eksik. Formu açıp bilgileri düzeltin.' : 'Katalog bağlantısı kurulamadı. Biraz sonra tekrar deneyin.'} actionLabel="Aramayı düzenle" onAction={() => window.location.assign(`/hotels?${searchQuery}`)} />}
-    {visibleState === 'ready' && results.length === 0 && <FeedbackState tone="empty" title="Bu ölçütlerle otel bulunamadı" message="Tarihleri, kişi sayısını veya isteğe bağlı filtreleri değiştirerek yeniden arayın." />}
-    {visibleState === 'ready' && results.length > 0 && <><div className="result-count"><strong>{results.length} otel bulundu</strong><span>Toplam konaklama fiyatına göre gösteriliyor</span></div><div className="hotel-result-list">{results.map(hotel => <article key={hotel.id} className="hotel-result-card"><div className="hotel-result-visual"><span>{hotel.city.slice(0, 2).toLocaleUpperCase('tr-TR')}</span></div><div className="hotel-result-copy"><div className="hotel-result-title"><div><span className="stars" aria-label={`${hotel.stars} yıldız`}>{'★'.repeat(hotel.stars)}</span><h2>{hotel.name}</h2><p>{hotel.district}, {hotel.city} · {hotel.rating}/5 puan</p></div><strong>{hotel.totalPrice.toLocaleString('tr-TR')} TL<small>{nights} gece · toplam</small></strong></div><p>{hotel.description}</p><div className="hotel-tags">{hotel.rooms.map(room => <span key={room}>{room}</span>)}{hotel.features.map(feature => <span key={feature}>{feature}</span>)}</div></div></article>)}</div></>}
-  </section>
+  const displayResults = useMemo(() => [...results].sort((a, b) => sort === 'price-asc' ? a.totalPrice - b.totalPrice : sort === 'price-desc' ? b.totalPrice - a.totalPrice : b.rating - a.rating), [results, sort])
+  const activeCriteria = [
+    ...(form.stars ? [{ id: 'stars', label: `${form.stars}+ yıldız` }] : []),
+    ...(form.minPrice ? [{ id: 'minPrice', label: `${form.minPrice} TL’den yüksek` }] : []),
+    ...(form.maxPrice ? [{ id: 'maxPrice', label: `${form.maxPrice} TL’ye kadar` }] : []),
+    ...(form.board ? [{ id: 'board', label: ({ room: 'Sadece oda', breakfast: 'Kahvaltı dahil', half: 'Yarım pansiyon', all: 'Her şey dahil' } as Record<string, string>)[form.board] }] : []),
+    ...form.features.map(feature => ({ id: `feature:${feature}`, label: feature })),
+  ]
+
+  const updateFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(params)
+    if (value) next.set(key, value); else next.delete(key)
+    setParams(next, { replace: true })
+  }
+
+  const toggleFeature = (feature: string) => {
+    const nextFeatures = form.features.includes(feature) ? form.features.filter(item => item !== feature) : [...form.features, feature]
+    updateFilter('features', nextFeatures.join(','))
+  }
+
+  const clearFilters = () => {
+    const next = new URLSearchParams(params)
+    ;['stars', 'minPrice', 'maxPrice', 'board', 'features'].forEach(key => next.delete(key))
+    setParams(next, { replace: true })
+  }
+
+  const removeCriterion = (id: string) => id.startsWith('feature:') ? toggleFeature(id.slice(8)) : updateFilter(id, '')
+
+  return <main className="page-frame hotel-results-page" data-testid="hotel-results-page">
+    <section className="results-search-bar">
+      <div className="results-query"><Icon name="map-pin" size={18} /><span><small>Konum</small><strong>{form.location || 'Arama sonuçları'}</strong></span></div>
+      <div><Icon name="calendar" size={18} /><span><small>Tarih</small><strong>{formatDate(form.checkIn)} – {formatDate(form.checkOut)}</strong></span></div>
+      <div><Icon name="users" size={18} /><span><small>Misafir</small><strong>{form.adults} yetişkin{Number(form.childCount) ? `, ${form.childCount} çocuk` : ''} · {form.rooms} oda</strong></span></div>
+      <Link className="primary-action" to={`/hotels?${searchQuery}`}>Düzenle</Link>
+    </section>
+    <details className="mobile-filter-drawer"><summary><Icon name="filter" size={17} />Filtreler{activeCriteria.length > 0 && <span>{activeCriteria.length}</span>}</summary><ResultsFilters form={form} onUpdate={updateFilter} onToggleFeature={toggleFeature} onClear={clearFilters} /></details>
+    <div className="hotel-results-layout">
+      <aside className="results-filter-sidebar"><ResultsFilters form={form} onUpdate={updateFilter} onToggleFeature={toggleFeature} onClear={clearFilters} /></aside>
+      <section className="results-main" aria-live="polite">
+        <div className="result-toolbar"><div><strong>{visibleState === 'ready' ? `${results.length} otel bulundu` : 'Otel sonuçları'}</strong><span>Fiyatlar {nights} gecelik örnek toplamdır.</span></div><label>Sırala<select value={sort} onChange={event => setSort(event.target.value as typeof sort)}><option value="rating">Puana göre</option><option value="price-asc">Fiyat: düşükten yükseğe</option><option value="price-desc">Fiyat: yüksekten düşüğe</option></select></label></div>
+        {activeCriteria.length > 0 && <div className="active-filter-strip" aria-label="Etkin filtreler">{activeCriteria.map(item => <button type="button" key={item.id} onClick={() => removeCriterion(item.id)}>{item.label}<span aria-hidden="true">×</span></button>)}</div>}
+        {visibleState === 'loading' && <HotelLoadingCards />}
+        {visibleState === 'error' && <FeedbackState tone="error" title="Sonuçlar gösterilemedi" message={invalidSearch ? 'Arama bilgileri geçersiz veya eksik. Formu açıp bilgileri düzeltin.' : 'Otel kataloğuna ulaşılamadı. API bağlantısını kontrol edip tekrar deneyin.'} actionLabel="Aramayı düzenle" onAction={() => navigate(`/hotels?${searchQuery}`)} />}
+        {visibleState === 'ready' && results.length === 0 && <FeedbackState tone="empty" title="Bu ölçütlerle otel bulunamadı" message="Tarihleri, misafir sayısını veya filtreleri değiştirerek yeniden arayın." actionLabel={activeCriteria.length ? 'Filtreleri temizle' : 'Aramayı düzenle'} onAction={activeCriteria.length ? clearFilters : () => navigate(`/hotels?${searchQuery}`)} />}
+        {visibleState === 'ready' && results.length > 0 && <div className="hotel-result-list">{displayResults.map(hotel => <article key={hotel.id} className="hotel-result-card"><div className="hotel-result-marker"><span><Icon name="hotel" size={24} /></span><small>{hotel.city}</small></div><div className="hotel-result-copy"><div className="hotel-title-row"><div><span className="stars" aria-label={`${hotel.stars} yıldız`}>{'★'.repeat(hotel.stars)}</span><h2>{hotel.name}</h2><p><Icon name="map-pin" size={14} />{hotel.district}, {hotel.city}</p></div><span className="rating-badge"><strong>{hotel.rating.toLocaleString('tr-TR')}</strong><small>5 üzerinden</small></span></div><p className="hotel-description">{hotel.description}</p><div className="hotel-tags">{hotel.rooms.map(room => <span key={room}>{room}</span>)}{hotel.features.map(feature => <span key={feature}>{feature}</span>)}</div></div><div className="hotel-price"><small>Toplam örnek fiyat</small><strong>{hotel.totalPrice.toLocaleString('tr-TR')} TL</strong><span>{nights} gece · {form.rooms} oda</span><p>Gerçek rezervasyon ve ödeme içermez.</p></div></article>)}</div>}
+      </section>
+    </div>
+  </main>
 }

@@ -15,26 +15,41 @@ import { AuthProvider } from './auth/AuthContext'
 import { useAuth } from './auth/useAuth'
 import { FeedbackState, type FeedbackTone } from './components/FeedbackState'
 import { HotelResultsPage, HotelSearchPage } from './components/HotelSearch'
+import { Icon } from './components/Icon'
 import './App.css'
 
 type HealthState = 'loading' | 'healthy' | 'unhealthy'
-type HealthResponse = {
-  status: 'healthy' | 'unhealthy'
-  database: { status: string; name?: string; message?: string }
+type HealthResponse = { status: 'healthy' | 'unhealthy' }
+type Airport = { code: string; name: string; city: string; country: string }
+type TravelCity = { id: string; name: string }
+type FlightResult = {
+  flightNumber: string
+  airline: string
+  airlineCode: string
+  departureAt: string
+  arrivalAt: string
+  stops: number
+  fare: {
+    id: string
+    name: string
+    price: number
+    currency: string
+    baggage: string
+    changePolicy: string
+    seatsAvailable: number
+  }
 }
 
 function useHealth() {
-  const [health, setHealth] = useState<HealthResponse | null>(null)
   const [state, setState] = useState<HealthState>('loading')
 
   const refresh = useCallback(async () => {
     setState('loading')
     try {
       const response = await fetch('/api/health')
-      setHealth((await response.json()) as HealthResponse)
-      setState(response.ok ? 'healthy' : 'unhealthy')
+      const data = await response.json() as HealthResponse
+      setState(response.ok && data.status === 'healthy' ? 'healthy' : 'unhealthy')
     } catch {
-      setHealth(null)
       setState('unhealthy')
     }
   }, [])
@@ -44,19 +59,20 @@ function useHealth() {
     return () => window.clearTimeout(timer)
   }, [refresh])
 
-  return { health, state, refresh }
+  return state
 }
 
 function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <ScrollToTop />
         <Routes>
           <Route element={<AppShell />}>
             <Route index element={<HomePage />} />
             <Route path="hotels" element={<HotelSearchPage />} />
             <Route path="hotels/results" element={<HotelResultsPage />} />
-            <Route path="flights" element={<SearchPage kind="flight" />} />
+            <Route path="flights" element={<FlightSearchPage />} />
             <Route path="chat" element={<ChatPage />} />
             <Route path="bookings" element={<ProtectedRoute><BookingsPage /></ProtectedRoute>} />
             <Route path="profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
@@ -70,176 +86,334 @@ function App() {
   )
 }
 
+function ScrollToTop() {
+  const { pathname } = useLocation()
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0 })
+  }, [pathname])
+
+  return null
+}
+
+function Brand() {
+  return (
+    <Link className="brand" to="/" aria-label="Ana sayfa">
+      <span className="brand-mark" aria-hidden="true">
+        <Icon name="compass" size={20} />
+      </span>
+      <span className="brand-copy"><strong>Bağımsız</strong><small>Seyahat Asistanı</small></span>
+    </Link>
+  )
+}
+
 function AppShell() {
   const { user, signOut } = useAuth()
-  const { state } = useHealth()
+  const health = useHealth()
+  const location = useLocation()
 
   return (
-    <main>
+    <div className="app-shell">
       <header className="topbar">
-        <Link className="brand" to="/" aria-label="Ana sayfa">
-          <span className="brand-mark" aria-hidden="true">BA</span>
-          <span>Bağımsız Seyahat Asistanı</span>
-        </Link>
-        <nav className="main-nav" aria-label="Ana menü">
-          <NavLink to="/hotels">Oteller</NavLink>
-          <NavLink to="/flights">Uçuşlar</NavLink>
-          <NavLink to="/chat">Sohbet</NavLink>
-          {user && <NavLink to="/bookings">Rezervasyonlarım</NavLink>}
-          {user && <NavLink to="/profile">Profil</NavLink>}
-          {user?.role === 'admin' && <NavLink to="/admin">Yönetim</NavLink>}
-        </nav>
-        <div className="topbar-actions">
-          <span className={`system-pill ${state}`}>
-            <span className="status-dot" aria-hidden="true" />
-            {state === 'healthy' ? 'Sistem hazır' : state === 'loading' ? 'Kontrol ediliyor' : 'Kurulum bekleniyor'}
-          </span>
-          {user ? (
-            <button className="account-button" type="button" onClick={signOut} title="Demo oturumunu kapat">
-              {user.name} · Çıkış
-            </button>
-          ) : (
-            <Link className="login-link" to="/login">Giriş yap</Link>
-          )}
+        <div className="topbar-inner">
+          <Brand />
+          <nav className="main-nav" aria-label="Ana menü">
+            <NavLink to="/hotels"><Icon name="hotel" size={15} /><span>Oteller</span></NavLink>
+            <NavLink to="/flights"><Icon name="plane" size={15} /><span>Uçuşlar</span></NavLink>
+            <NavLink to="/chat"><Icon name="chat" size={15} /><span>Planlama örneği</span></NavLink>
+            {user && <NavLink to="/bookings"><Icon name="calendar" size={15} /><span>Kayıtlarım</span></NavLink>}
+            {user?.role === 'admin' && <NavLink to="/admin">Yönetim</NavLink>}
+          </nav>
+          <div className="topbar-actions">
+            {user ? (
+              <>
+                <NavLink className="profile-link" to="/profile" aria-label="Profili aç">
+                  <span>{user.name.slice(0, 1).toLocaleUpperCase('tr-TR')}</span>
+                  <b>{user.name.split(' ')[0]}</b>
+                </NavLink>
+                <button className="quiet-button" type="button" onClick={() => void signOut()}>Çıkış</button>
+              </>
+            ) : (
+              <Link className="login-link" to="/login">Giriş yap</Link>
+            )}
+          </div>
         </div>
       </header>
+      {health === 'unhealthy' && (
+        <div className="service-alert" role="alert">
+          <span aria-hidden="true"><Icon name="info" size={16} /></span>
+          <p><strong>Arama servisine şu anda ulaşılamıyor.</strong> Arama yaparken sorun yaşarsanız yerel API ve veritabanı bağlantısını kontrol edin.</p>
+        </div>
+      )}
       <Outlet />
-      <footer>
-        <span>Bağımsız AI Destekli Seyahat Asistanı</span>
-        <span>Yerel geliştirme başlangıcı</span>
-      </footer>
-    </main>
+      {location.pathname !== '/chat' && <SiteFooter />}
+    </div>
+  )
+}
+
+function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <div className="footer-inner">
+        <div><Brand /><p>Yerel örnek verilerle seyahat seçeneklerini ara ve karşılaştır.</p></div>
+        <nav aria-label="Alt menü"><strong>Keşfet</strong><Link to="/hotels">Otel ara</Link><Link to="/flights">Uçuş ara</Link><Link to="/chat">Sohbet örneği</Link></nav>
+        <div className="footer-scope"><strong>Demo kapsamı</strong><p>Gerçek rezervasyon ve ödeme yapılmaz. Sonuçlar canlı sağlayıcı verisi değildir.</p></div>
+      </div>
+      <div className="footer-bottom"><span>© 2026 {projectIdentity.name}</span><span>Eğitim amaçlı yerel proje</span></div>
+    </footer>
   )
 }
 
 function HomePage() {
-  const { health, state, refresh } = useHealth()
+  const [cities, setCities] = useState<TravelCity[] | null>(null)
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch('/api/travel/cities', { signal: controller.signal })
+      .then(async response => response.ok ? setCities(await response.json() as TravelCity[]) : setCities([]))
+      .catch(error => { if (error.name !== 'AbortError') setCities([]) })
+    return () => controller.abort()
+  }, [])
 
   return (
-    <>
-      <section className="hero" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">AI DESTEKLİ SEYAHAT PLANLAMA DENEYİMİ</p>
-          <h1>{projectIdentity.name}</h1>
-          <p className="lead">{projectIdentity.shortDescription}</p>
-          <div className="notice" role="note">
-            <span className="notice-icon" aria-hidden="true">i</span>
-            <p>{projectIdentity.serviceDisclaimer}</p>
-          </div>
-          <div className="actions">
-            <Link className="primary-action" to="/hotels">Otel aramaya başla</Link>
-            <Link className="secondary-action" to="/chat">Sohbetle keşfet</Link>
-          </div>
+    <main className="home-page" data-testid="home-page">
+      <section className="home-start page-container" aria-labelledby="home-title">
+        <div className="home-start-heading">
+          <div><span className="section-label">YEREL SEYAHAT KATALOĞU</span><h1 id="home-title">Seyahatini planlamaya başla</h1></div>
+          <p>Otel veya uçuş ölçütlerini girerek örnek seçenekleri karşılaştır; istersen planını nasıl tarif edeceğini sohbet önizlemesinde gör.</p>
         </div>
-        <div className="route-card" aria-label="Örnek seyahat araması">
-          <div className="route-card-head"><span>Örnek rota</span><span className="demo-badge">DEMO</span></div>
-          <div className="route"><div><strong>IST</strong><span>İstanbul</span></div><div className="route-line" aria-hidden="true"><span>✦</span></div><div className="route-end"><strong>AYT</strong><span>Antalya</span></div></div>
-          <dl className="trip-details"><div><dt>Tarih</dt><dd>18 Haziran</dd></div><div><dt>Yolcu</dt><dd>2 yetişkin</dd></div><div><dt>Tür</dt><dd>Gidiş-dönüş</dd></div></dl>
-          <p className="sample-note">Gösterilen rota ve bilgiler yalnızca örnektir.</p>
-        </div>
+        <nav className="start-options" aria-label="Arama türü">
+          <Link to="/hotels"><Icon name="hotel" size={22} /><span><strong>Otel ara</strong><small>Konum, tarih ve misafir seç</small></span><Icon name="arrow" size={18} /></Link>
+          <Link to="/flights"><Icon name="plane" size={22} /><span><strong>Uçuş ara</strong><small>Rota, tarih ve yolcu seç</small></span><Icon name="arrow" size={18} /></Link>
+          <Link to="/chat"><Icon name="chat" size={22} /><span><strong>Planlama örneği</strong><small>Sohbet akışını incele</small></span><Icon name="arrow" size={18} /></Link>
+        </nav>
+        <div className="home-scope" role="note"><Icon name="info" size={18} /><p><strong>Eğitim amaçlı planlama aracı.</strong> {projectIdentity.serviceDisclaimer}</p></div>
       </section>
-      <section className="status-section" id="system-status">
-        <div className="section-heading"><div><p className="eyebrow">YEREL GELİŞTİRME ORTAMI</p><h2>Üç parça, tek çalışan başlangıç</h2></div><button type="button" onClick={() => void refresh()} disabled={state === 'loading'}>Yeniden kontrol et</button></div>
-        <div className="status-grid" aria-live="polite">
-          <StatusCard title="React arayüz" detail="Vite geliştirme sunucusu · 5173" state="healthy" number="01" />
-          <StatusCard title=".NET API" detail="ASP.NET Core Web API · 5080" state={state === 'loading' ? 'loading' : health ? 'healthy' : 'unhealthy'} number="02" />
-          <StatusCard title="PostgreSQL" detail={health?.database.status === 'healthy' ? `${health.database.name} veritabanına bağlı` : health?.database.message ?? 'API bağlantısı bekleniyor'} state={state} number="03" />
-        </div>
+
+      {cities && cities.length > 0 && <section className="destination-section page-container" aria-labelledby="destinations-title">
+        <div className="content-heading"><div><span className="section-label">MEVCUT KATALOG</span><h2 id="destinations-title">Desteklenen şehirler</h2></div><p>Veritabanındaki şehirlerden biriyle otel aramasına başla.</p></div>
+        <div className="destination-list">{cities.map(city => <Link key={city.id} to={`/hotels?q=${encodeURIComponent(city.name)}`}><Icon name="map-pin" size={18} /><span><strong>{city.name}</strong><small>Otel seçeneklerini ara</small></span><Icon name="arrow" size={16} /></Link>)}</div>
       </section>
-    </>
+      }
+    </main>
   )
 }
 
-function SearchPage({ kind }: { kind: 'hotel' | 'flight' }) {
-  const hotel = kind === 'hotel'
-  const [query, setQuery] = useState('')
-  const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
-  const [results, setResults] = useState<string[]>([])
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [checkIn, setCheckIn] = useState(''); const [checkOut, setCheckOut] = useState(''); const [adults, setAdults] = useState('2')
-  const [airportHints, setAirportHints] = useState<Array<{ code: string; name: string; city: string }>>([])
-  useEffect(() => { if (!hotel && query.trim().length >= 2) { fetch(`/api/travel/airports?q=${encodeURIComponent(query)}`).then(async r => r.ok ? setAirportHints(await r.json()) : setAirportHints([])).catch(() => setAirportHints([])) } else setAirportHints([]) }, [hotel, query])
+function localToday() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
 
-  const submitSearch = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (isSubmitting) return
-    if (!query.trim()) {
-      setFeedback({ tone: 'error', title: 'Arama bilgisi eksik', message: hotel ? 'Devam etmek için bir şehir veya bölge yazın.' : 'Devam etmek için kalkış noktası yazın.' })
+function airportCode(value: string) {
+  const match = value.trim().toLocaleUpperCase('tr-TR').match(/(?:\(|^)([A-Z]{3})\)?$/)
+  return match?.[1] ?? ''
+}
+
+function AirportField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
+  const [suggestions, setSuggestions] = useState<Airport[]>([])
+
+  useEffect(() => {
+    const term = value.trim()
+    if (term.length < 2 || airportCode(term)) {
       return
     }
-    setIsSubmitting(true)
-    setFeedback({ tone: 'loading', title: 'Örnek sonuçlar hazırlanıyor', message: 'Arama kriterleriniz kontrol ediliyor.' })
-    window.setTimeout(async () => {
-      const normalized = query.trim().toLocaleLowerCase('tr-TR')
-      setIsSubmitting(false)
-      if (hotel) { try { const params = new URLSearchParams({ q: query.trim() }); if (checkIn) params.set('checkIn', checkIn); if (checkOut) params.set('checkOut', checkOut); params.set('adults', adults); const response = await fetch(`/api/hotels?${params}`); if (response.ok) { const data = await response.json() as Array<{ name: string; totalPrice: number }>; setResults(data.map(item => `${item.name} · ${item.totalPrice > 0 ? `${item.totalPrice} TL` : 'tarih seçilmedi'}`)); setFeedback(data.length ? { tone: 'success', title: 'Otel sonuçları hazır', message: 'Tarih ve kapasiteye uygun aktif katalog kayıtları listelendi.' } : { tone: 'empty', title: 'Sonuç bulunamadı', message: 'Seçtiğiniz tüm gecelerde uygun oda bulunamadı.' }); return } } catch { /* demo fallback below */ } }
-      if (normalized.includes('hata')) {
-        setResults([])
-        setFeedback({ tone: 'error', title: 'Arama tamamlanamadı', message: 'Bağlantı kurulamadı. Ayarlarınızı kontrol edip tekrar deneyin.' })
-      } else if (normalized.includes('boş') || normalized.includes('yok')) {
-        setResults([])
-        setFeedback({ tone: 'empty', title: 'Sonuç bulunamadı', message: 'Bu kriterlerle eşleşen örnek kayıt yok. Farklı bir şehir veya tarih deneyin.' })
-      } else {
-        setResults(hotel ? ['Galata Meydan Otel', 'Kalepark Konaklama'] : ['Anadolu 204', 'Akdeniz 318'])
-        setFeedback({ tone: 'success', title: 'Örnek sonuçlar hazır', message: 'Sonuçlar yalnızca proje içindeki örnek verilerden oluşturuldu.' })
-      }
-    }, 650)
-  }
-
-  const resetSearch = () => { setQuery(''); setResults([]); setFeedback(null) }
-  const retrySearch = () => submitSearch({ preventDefault: () => undefined } as FormEvent<HTMLFormElement>)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      fetch(`/api/travel/airports?q=${encodeURIComponent(term)}`, { signal: controller.signal })
+        .then(async response => response.ok ? setSuggestions(await response.json() as Airport[]) : setSuggestions([]))
+        .catch(() => undefined)
+    }, 180)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [value])
 
   return (
-    <PageFrame eyebrow={hotel ? 'KONAKLAMA ARAMA' : 'UÇUŞ ARAMA'} title={hotel ? 'Size uygun bir otel bulun' : 'Rotanıza uygun uçuşları keşfedin'} description={hotel ? 'Tarih, konum ve kişi sayısıyla örnek otel seçeneklerini karşılaştırın.' : 'Kalkış, varış ve tarihe göre örnek uçuş seçeneklerini inceleyin.'}>
-      <form className="search-panel" onSubmit={submitSearch} aria-busy={isSubmitting}>
-        <div className="form-grid"><label>{hotel ? 'Nereye?' : 'Nereden?'}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={hotel ? 'Şehir veya bölge' : 'Şehir / havaalanı'} />{airportHints.length > 0 && <span className="airport-hints">{airportHints.map(item => <button type="button" key={item.code} onClick={() => { setQuery(`${item.city} (${item.code})`); setAirportHints([]) }}><strong>{item.code}</strong> {item.name}</button>)}</span>}</label><label>{hotel ? 'Giriş tarihi' : 'Gidiş tarihi'}<input type="date" value={checkIn} onChange={event => setCheckIn(event.target.value)} /></label><label>{hotel ? 'Gece' : 'Yolcu'}<input type="number" min="1" value={adults} onChange={event => setAdults(event.target.value)} /></label>{hotel && <label>Çıkış tarihi<input type="date" value={checkOut} onChange={event => setCheckOut(event.target.value)} /></label>}</div>
-        <button type="submit" className="primary-action form-button" disabled={isSubmitting}>{isSubmitting ? 'Hazırlanıyor…' : 'Örnek sonuçları getir'}</button>
-        <p className="form-note">Bu A03 başlangıç ekranı yalnızca yönlendirme ve sayfa akışını gösterir. Arama kuralları ilgili aşamalarda eklenecektir.</p>
-        <p className="demo-hint">Durumları denemek için arama alanına “boş” veya “hata” yazabilirsiniz.</p>
-        {feedback && <FeedbackState {...feedback} actionLabel={feedback.tone === 'error' ? 'Tekrar dene' : feedback.tone === 'success' ? 'Yeni arama' : undefined} onAction={feedback.tone === 'success' ? resetSearch : feedback.tone === 'error' ? retrySearch : undefined} actionDisabled={isSubmitting} />}
-        {results.length > 0 && <div className="result-list">{results.map((result, index) => <article className="result-card" key={result}><span>0{index + 1}</span><div><strong>{result}</strong><p>{hotel ? 'Örnek konaklama · müsaitlik simülasyonu' : 'Örnek sefer · uçuş seçeneği simülasyonu'}</p></div><b>›</b></article>)}</div>}
-      </form>
-    </PageFrame>
+    <label className="form-field airport-field">
+      <span>{label}<i>*</i></span>
+      <input value={value} onChange={event => { const next = event.target.value; onChange(next); if (next.trim().length < 2 || airportCode(next)) setSuggestions([]) }} placeholder="Şehir veya havaalanı kodu" autoComplete="off" aria-invalid={Boolean(error)} />
+      {suggestions.length > 0 && <span className="suggestion-popover">{suggestions.map(item => <button type="button" key={item.code} onClick={() => { onChange(`${item.city} (${item.code})`); setSuggestions([]) }}><b>{item.code}</b><span>{item.city}<small>{item.name}</small></span></button>)}</span>}
+      {error && <small className="field-error">{error}</small>}
+    </label>
   )
+}
+
+function formatClock(value: string) {
+  return new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function formatDuration(start: string, end: string) {
+  const minutes = Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60_000))
+  return `${Math.floor(minutes / 60)} sa ${minutes % 60} dk`
+}
+
+function FlightSearchPage() {
+  const [origin, setOrigin] = useState('')
+  const [destination, setDestination] = useState('')
+  const [date, setDate] = useState('')
+  const [passengers, setPassengers] = useState('1')
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const clearError = (key: string) => {
+    setErrors(current => {
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
+  }
+  const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [results, setResults] = useState<FlightResult[]>([])
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const from = airportCode(origin)
+    const to = airportCode(destination)
+    const nextErrors: Record<string, string> = {}
+    if (!from) nextErrors.origin = 'Listeden bir kalkış havaalanı seçin.'
+    if (!to) nextErrors.destination = 'Listeden bir varış havaalanı seçin.'
+    if (from && to && from === to) nextErrors.destination = 'Varış havaalanı kalkıştan farklı olmalı.'
+    if (!date) nextErrors.date = 'Gidiş tarihini seçin.'
+    else if (date < localToday()) nextErrors.date = 'Geçmiş tarih için arama yapılamaz.'
+    const passengerCount = Number(passengers)
+    if (!Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 20) nextErrors.passengers = 'Yolcu sayısı 1–20 arasında olmalı.'
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length) return
+
+    setState('loading')
+    setResults([])
+    try {
+      const params = new URLSearchParams({ from, to, date, passengers })
+      const response = await fetch(`/api/flights?${params}`)
+      if (!response.ok) throw new Error('flight-search')
+      const data = await response.json() as FlightResult[]
+      setResults([...data].sort((a, b) => a.fare.price - b.fare.price))
+      setState('ready')
+    } catch {
+      setState('error')
+    }
+  }
+
+  return (
+    <main className="page-frame flight-page" data-testid="flight-page">
+      <header className="compact-page-heading"><div><span className="section-label">UÇUŞLAR</span><h1>Uçuş ara</h1></div><p>Yerel katalogdaki örnek seferleri rota, saat ve fiyat bilgileriyle karşılaştır.</p></header>
+      <form className="flight-search-form search-workbench" onSubmit={submit} noValidate aria-busy={state === 'loading'}>
+        <div className="workbench-heading"><div><Icon name="plane" size={19} /><h2>Tek yön</h2></div><small>Örnek sefer verileri</small></div>
+        {Object.keys(errors).length > 0 && <FeedbackState tone="error" title="Arama bilgilerini kontrol edin" message="İşaretli alanları düzelttikten sonra tekrar deneyin." />}
+        <div className="flight-form-grid">
+          <AirportField label="Nereden" value={origin} onChange={value => { setOrigin(value); clearError('origin') }} error={errors.origin} />
+          <button className="swap-route" type="button" aria-label="Kalkış ve varışı değiştir" onClick={() => { setOrigin(destination); setDestination(origin) }}><Icon name="swap" size={18} /></button>
+          <AirportField label="Nereye" value={destination} onChange={value => { setDestination(value); clearError('destination') }} error={errors.destination} />
+          <label className="form-field"><span>Gidiş tarihi<i>*</i></span><input type="date" min={localToday()} value={date} onChange={event => { setDate(event.target.value); clearError('date') }} aria-invalid={Boolean(errors.date)} />{errors.date && <small className="field-error">{errors.date}</small>}</label>
+          <label className="form-field"><span>Yolcu<i>*</i></span><select value={passengers} onChange={event => { setPassengers(event.target.value); clearError('passengers') }}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yolcu</option>)}</select>{errors.passengers && <small className="field-error">{errors.passengers}</small>}</label>
+          <button className="primary-action flight-submit" type="submit" disabled={state === 'loading'}><Icon name="search" size={17} />{state === 'loading' ? 'Aranıyor…' : 'Uçuş ara'}</button>
+        </div>
+      </form>
+
+      <section className="flight-results" aria-live="polite">
+        {state === 'idle' && <div className="results-placeholder"><Icon name="search" size={24} /><div><h2>Arama ölçütlerini tamamla</h2><p>Kalkış, varış ve tarihi seçtiğinde sonuçlar formun hemen altında listelenecek.</p></div><span>Canlı sağlayıcı verisi kullanılmaz.</span></div>}
+        {state === 'loading' && <LoadingCards label="Uygun uçuşlar aranıyor" />}
+        {state === 'error' && <FeedbackState tone="error" title="Uçuşlar getirilemedi" message="Arama servisine ulaşılamadı. API ve veritabanı bağlantısını kontrol edip yeniden deneyin." />}
+        {state === 'ready' && results.length === 0 && <div className="results-placeholder empty-result"><Icon name="info" size={24} /><div><h2>Bu rota için sefer bulunamadı</h2><p>Yukarıdaki formdan kalkış veya varış havaalanını ya da tarihi değiştirip yeniden arayabilirsin.</p></div></div>}
+        {state === 'ready' && results.length > 0 && <><div className="result-toolbar"><div><strong>{results.length} uçuş seçeneği</strong><span>{airportCode(origin)} → {airportCode(destination)} · {date}</span></div><small>Örnek fiyata göre sıralı</small></div><div className="flight-list">{results.map(result => <article className="flight-card" key={result.fare.id}><div className="airline-summary"><span>{result.airlineCode}</span><div><strong>{result.airline}</strong><small>{result.flightNumber} · {result.fare.name}</small></div></div><div className="flight-route"><div><strong>{formatClock(result.departureAt)}</strong><span>{airportCode(origin)}</span></div><div className="route-duration"><span>{formatDuration(result.departureAt, result.arrivalAt)}</span><i /><small>{result.stops === 0 ? 'Direkt' : `${result.stops} aktarma`}</small></div><div><strong>{formatClock(result.arrivalAt)}</strong><span>{airportCode(destination)}</span></div></div><div className="fare-details"><span>{result.fare.baggage}</span><span>{result.fare.changePolicy}</span></div><div className="flight-price"><small>Kişi başı örnek fiyat</small><strong>{result.fare.price.toLocaleString('tr-TR')} {result.fare.currency}</strong><span>{result.fare.seatsAvailable} örnek koltuk</span></div></article>)}</div></>}
+      </section>
+    </main>
+  )
+}
+
+function LoadingCards({ label }: { label: string }) {
+  return <div className="loading-results" aria-label={label}><div className="loading-label"><span className="spinner" aria-hidden="true" />{label}</div>{[1, 2, 3].map(item => <div className="skeleton-card" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
 }
 
 function ChatPage() {
-  const [message, setMessage] = useState('')
-  const [sending, setSending] = useState(false)
-  const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
-  const sendMessage = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (sending) return
-    if (!message.trim()) { setFeedback({ tone: 'error', title: 'Mesaj boş', message: 'Arama isteğinizi yazıp tekrar deneyin.' }); return }
-    setSending(true)
-    setFeedback({ tone: 'loading', title: 'Sohbet yanıtı hazırlanıyor', message: 'İsteğiniz örnek arama akışına aktarılıyor.' })
-    window.setTimeout(() => { setSending(false); setMessage(''); setFeedback({ tone: 'success', title: 'İstek alındı', message: 'Eksik bilgileri tamamlamak için bir sonraki soru hazırlandı.' }) }, 650)
-  }
-  return <PageFrame eyebrow="SOHBETLE ARAMA" title="İsteğinizi doğal cümlelerle anlatın" description="Eksik bilgileri soran sohbet akışı, otel ve uçuş aramalarına yönlendirir."><div className="chat-preview"><div className="chat-message assistant">Merhaba! Otel mi yoksa uçuş mu aramak istersiniz?</div><div className="chat-message user">İstanbul'dan Antalya'ya iki kişi için örnek bir uçuş arıyorum.</div><div className="chat-message assistant">Tarih bilgisini de ekleyin; ardından örnek seçenekleri göstereyim.</div>{feedback && <FeedbackState {...feedback} /> }<form className="chat-input" onSubmit={sendMessage} aria-busy={sending}><input value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Mesajınızı yazın..." aria-label="Mesajınızı yazın" /><button type="submit" className="primary-action" disabled={sending}>{sending ? 'Gönderiliyor…' : 'Gönder'}</button></form></div></PageFrame>
+  return (
+    <main className="chat-page" data-testid="chat-page">
+      <section className="chat-workspace" aria-label="Sohbet planlama önizlemesi">
+        <header className="chat-workspace-header"><div><span className="assistant-avatar"><Icon name="chat" size={18} /></span><div><h1>Seyahat planlama örneği</h1><p>Sohbet API’si bağlı değil · etkileşimsiz önizleme</p></div></div><span className="preview-status">ÖRNEK AKIŞ</span></header>
+        <div className="message-list">
+          <div className="chat-context-note"><Icon name="info" size={18} /><p>Bu konuşma yalnızca asistanın hangi bilgileri isteyeceğini gösterir. Yazılan mesajlar gönderilmez veya kaydedilmez.</p></div>
+          <div className="chat-message assistant"><small>Seyahat yardımcısı</small><p>Nasıl bir seyahat planlıyorsun: konaklama mı, uçuş mu?</p></div>
+          <div className="chat-message user"><small>Örnek kullanıcı</small><p>İstanbul’dan Antalya’ya iki kişi için uçuş arıyorum.</p></div>
+          <div className="chat-message assistant"><small>Seyahat yardımcısı</small><p>Hangi tarihte uçmak istersin? Tarihi aldıktan sonra örnek katalogdaki seferler aranabilir.</p></div>
+        </div>
+        <div className="chat-shortcuts"><span>Aramaya doğrudan devam et:</span><Link to="/hotels"><Icon name="hotel" size={15} />Otel formu</Link><Link to="/flights"><Icon name="plane" size={15} />Uçuş formu</Link></div>
+        <div className="chat-composer" aria-disabled="true"><input disabled value="" placeholder="Canlı sohbet bu sürümde kullanılamıyor" aria-label="Sohbet mesajı" /><button disabled type="button" aria-label="Mesaj gönder"><Icon name="arrow" size={18} /></button></div>
+      </section>
+    </main>
+  )
 }
 
 function BookingsPage() {
-  const navigate = useNavigate(); const [count, setCount] = useState<number | null>(null); const token = sessionStorage.getItem('travel-assistant-demo-session')
-  useEffect(() => { fetch('/api/bookings', { headers: { Authorization: `Bearer ${token ?? ''}` } }).then(async response => { if (response.ok) setCount((await response.json()).length) }).catch(() => setCount(0)) }, [token])
-  return <PageFrame eyebrow="KAYITLARIM" title="Rezervasyon simülasyonlarınız" description="Oluşturduğunuz eğitim amaçlı kayıtları burada görebilirsiniz.">{count === null ? <FeedbackState tone="loading" title="Kayıtlar yükleniyor" message="Kişisel kayıtlarınız getiriliyor." /> : <FeedbackState tone="empty" title={count ? `${count} simülasyon kaydı` : 'Henüz simülasyon kaydı yok'} message="Bu liste yalnızca sizin hesabınıza bağlı kayıtları gösterir." actionLabel="Otel aramaya git" onAction={() => navigate('/hotels')} />}</PageFrame>
+  const navigate = useNavigate()
+  const [count, setCount] = useState<number | null>(null)
+  const [failed, setFailed] = useState(false)
+  const token = sessionStorage.getItem('travel-assistant-demo-session')
+
+  useEffect(() => {
+    fetch('/api/bookings', { headers: { Authorization: `Bearer ${token ?? ''}` } })
+      .then(async response => { if (!response.ok) throw new Error(); setCount((await response.json() as unknown[]).length) })
+      .catch(() => setFailed(true))
+  }, [token])
+
+  return <main className="page-frame bookings-page"><PageHeading label="KAYITLARIM" title="Rezervasyon simülasyonların" description="Hesabına bağlı eğitim amaçlı simülasyon kayıtlarının genel durumunu burada takip et." />{failed ? <FeedbackState tone="error" title="Kayıt bilgisi alınamadı" message="Oturum veya API bağlantısını kontrol edip yeniden deneyin." /> : count === null ? <FeedbackState tone="loading" title="Kayıt sayısı getiriliyor" message="Hesabınızdaki simülasyonlar kontrol ediliyor." /> : <section className="booking-summary"><div className="count-panel"><small>TOPLAM KAYIT</small><strong>{count}</strong><span>rezervasyon simülasyonu</span></div><div><h2>{count ? 'Kayıtların hesabına bağlı' : 'Henüz bir simülasyon kaydın yok'}</h2><p>Bu görünüm şu anda yalnızca kayıt sayısını gösteriyor; ayrıntılı bir rezervasyon listesi sunulmuyor.</p><button className="primary-action" type="button" onClick={() => navigate('/hotels')}>Yeni otel araması</button></div></section>}</main>
 }
 
 function ProfilePage() {
-  const { user } = useAuth(); const [name, setName] = useState(user?.name ?? ''); const [phone, setPhone] = useState(''); const [currency, setCurrency] = useState('TRY'); const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null); const [saving, setSaving] = useState(false)
-  useEffect(() => { const token = sessionStorage.getItem('travel-assistant-demo-session'); fetch('/api/profile', { headers: { Authorization: `Bearer ${token ?? ''}` } }).then(async r => { if (r.ok) { const data = await r.json(); setName(data.name); setPhone(data.phone); setCurrency(data.currency) } }).catch(() => undefined) }, [])
-  const save = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); if (saving) return; setSaving(true); setFeedback({ tone: 'loading', title: 'Profil güncelleniyor', message: 'Bilgileriniz kaydediliyor.' }); try { const token = sessionStorage.getItem('travel-assistant-demo-session'); const response = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` }, body: JSON.stringify({ name, phone, currency }) }); const data = await response.json(); setFeedback(response.ok ? { tone: 'success', title: 'Profil güncellendi', message: data.message } : { tone: 'error', title: 'Profil güncellenemedi', message: data.message ?? 'Tekrar deneyin.' }) } catch { setFeedback({ tone: 'error', title: 'Bağlantı kurulamadı', message: 'Bağlantınızı kontrol edip tekrar deneyin.' }) } finally { setSaving(false) } }
-  return <PageFrame eyebrow="HESABIM" title="Profil ve tercihlerin" description="Adınızı, telefonunuzu ve tercih ettiğiniz para birimini yönetin."><form className="profile-card profile-form" onSubmit={save}><span className="profile-avatar">{name.slice(0, 1).toUpperCase()}</span><div className="profile-fields"><label>Ad soyad<input value={name} onChange={e => setName(e.target.value)} required /></label><label>E-posta<input value={user?.email ?? ''} readOnly /></label><label>Telefon<input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+90 5xx xxx xx xx" /></label><label>Para birimi<select value={currency} onChange={e => setCurrency(e.target.value)}><option value="TRY">TRY — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Amerikan doları</option><option value="GBP">GBP — İngiliz sterlini</option></select></label><button className="primary-action" type="submit" disabled={saving}>{saving ? 'Kaydediliyor…' : 'Profili kaydet'}</button>{feedback && <FeedbackState {...feedback} />}</div></form></PageFrame>
+  const { user } = useAuth()
+  const [name, setName] = useState(user?.name ?? '')
+  const [phone, setPhone] = useState('')
+  const [currency, setCurrency] = useState('TRY')
+  const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('travel-assistant-demo-session')
+    fetch('/api/profile', { headers: { Authorization: `Bearer ${token ?? ''}` } }).then(async response => {
+      if (response.ok) { const data = await response.json(); setName(data.name); setPhone(data.phone); setCurrency(data.currency) }
+    }).catch(() => undefined)
+  }, [])
+
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (saving) return
+    setSaving(true)
+    setFeedback(null)
+    try {
+      const token = sessionStorage.getItem('travel-assistant-demo-session')
+      const response = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` }, body: JSON.stringify({ name, phone, currency }) })
+      const data = await response.json()
+      setFeedback(response.ok ? { tone: 'success', title: 'Profil güncellendi', message: data.message } : { tone: 'error', title: 'Profil güncellenemedi', message: data.message ?? 'Bilgileri kontrol edip yeniden deneyin.' })
+    } catch {
+      setFeedback({ tone: 'error', title: 'Bağlantı kurulamadı', message: 'Profil servisine ulaşılamadı. Biraz sonra tekrar deneyin.' })
+    } finally { setSaving(false) }
+  }
+
+  return <main className="page-frame profile-page"><PageHeading label="HESABIM" title="Profil ve tercihlerin" description="Temel hesap bilgilerini ve gösterilecek para birimini buradan yönet." /><form className="profile-card" onSubmit={save}><div className="profile-card-heading"><span className="profile-avatar">{name.slice(0, 1).toLocaleUpperCase('tr-TR')}</span><div><strong>{name || 'Profil bilgileri'}</strong><small>{user?.email}</small></div></div><div className="profile-fields"><label className="form-field"><span>Ad soyad</span><input value={name} onChange={event => setName(event.target.value)} required /></label><label className="form-field"><span>E-posta</span><input value={user?.email ?? ''} readOnly /></label><label className="form-field"><span>Telefon</span><input value={phone} onChange={event => setPhone(event.target.value)} placeholder="+90 5xx xxx xx xx" /></label><label className="form-field"><span>Para birimi</span><select value={currency} onChange={event => setCurrency(event.target.value)}><option value="TRY">TRY — Türk lirası</option><option value="EUR">EUR — Euro</option><option value="USD">USD — Amerikan doları</option><option value="GBP">GBP — İngiliz sterlini</option></select></label></div><div className="profile-actions"><p>Değişiklikler yalnızca bu yerel proje hesabında tutulur.</p><button className="primary-action" type="submit" disabled={saving}>{saving ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button></div>{feedback && <FeedbackState {...feedback} />}</form></main>
 }
 
 function AdminRoute() {
   const { user } = useAuth()
   const navigate = useNavigate()
-  const [name, setName] = useState(''); const [district, setDistrict] = useState(''); const [cityId, setCityId] = useState(''); const [cities, setCities] = useState<Array<{id:string;name:string}>>([]); const [message, setMessage] = useState('');
-  useEffect(() => { const token = sessionStorage.getItem('travel-assistant-demo-session'); fetch('/api/travel/cities', { headers: { Authorization: `Bearer ${token ?? ''}` } }).then(r => r.ok ? r.json() : []).then(setCities).catch(() => undefined) }, [])
+  const [name, setName] = useState('')
+  const [district, setDistrict] = useState('')
+  const [cityId, setCityId] = useState('')
+  const [cities, setCities] = useState<Array<{ id: string; name: string }>>([])
+  const [feedback, setFeedback] = useState<{ tone: FeedbackTone; title: string; message: string } | null>(null)
+
+  useEffect(() => { fetch('/api/travel/cities').then(async response => response.ok ? setCities(await response.json()) : undefined).catch(() => undefined) }, [])
   if (!user) return <Navigate to="/login?returnTo=%2Fadmin" replace />
-  if (user.role !== 'admin') return <PageFrame eyebrow="YETKİ GEREKLİ" title="Bu alana erişim yok" description="Yönetim bağlantısı yalnızca admin yetkili hesaplarda görünür."><FeedbackState tone="error" title="Yetkiniz bulunmuyor" message="Demo admin oturumu ile giriş yaparak örnek yönetim ekranını açabilirsiniz." actionLabel="Ana sayfaya dön" onAction={() => navigate('/')} /></PageFrame>
-  const addHotel = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); const token = sessionStorage.getItem('travel-assistant-demo-session'); const response = await fetch('/api/admin/hotels', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` }, body: JSON.stringify({ name, cityId, district, stars: 3, rating: 4, description: 'Admin tarafından eklenen otel.' }) }); const data = await response.json(); setMessage(data.message ?? 'İşlem tamamlandı.'); if (response.ok) setName('') }
-  return <PageFrame eyebrow="YÖNETİM" title="Seyahat verilerini yönet" description="Örnek otel, oda, uçuş, fiyat ve müsaitlik verilerinin yönetim alanı."><div className="admin-grid"><form className="admin-form" onSubmit={addHotel}><h3>Otel ekle</h3><input required placeholder="Otel adı" value={name} onChange={e => setName(e.target.value)} /><input required placeholder="Bölge" value={district} onChange={e => setDistrict(e.target.value)} /><select required value={cityId} onChange={e => setCityId(e.target.value)}><option value="">Şehir seçin</option>{cities.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}</select><button className="primary-action" type="submit">Otel ekle</button>{message && <p>{message}</p>}</form><div><strong>Uçuşlar</strong><span>Sefer ve koltuk bilgileri API üzerinden yönetilir</span></div><div><strong>Fiyat ve müsaitlik</strong><span>Satışa kapatma ve koltuk güncelleme desteklenir</span></div></div></PageFrame>
+  if (user.role !== 'admin') return <main className="page-frame"><PageHeading label="YETKİ GEREKLİ" title="Bu alana erişim yok" description="Yönetim alanı yalnızca admin rolüne sahip hesaplarda kullanılabilir." /><FeedbackState tone="error" title="Yetkin bulunmuyor" message="Mevcut hesabınla seyahat aramalarına devam edebilirsin." actionLabel="Ana sayfaya dön" onAction={() => navigate('/')} /></main>
+
+  const addHotel = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setFeedback(null)
+    try {
+      const token = sessionStorage.getItem('travel-assistant-demo-session')
+      const response = await fetch('/api/admin/hotels', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` }, body: JSON.stringify({ name, cityId, district, stars: 3, rating: 4, description: 'Admin tarafından eklenen otel.' }) })
+      const data = await response.json()
+      setFeedback(response.ok ? { tone: 'success', title: 'Otel kataloğa eklendi', message: data.message } : { tone: 'error', title: 'İşlem tamamlanamadı', message: data.message ?? 'Bilgileri kontrol edin.' })
+      if (response.ok) { setName(''); setDistrict(''); setCityId('') }
+    } catch { setFeedback({ tone: 'error', title: 'Bağlantı kurulamadı', message: 'Yönetim servisine ulaşılamadı.' }) }
+  }
+
+  return <main className="page-frame admin-page"><PageHeading label="YÖNETİM" title="Örnek seyahat verilerini yönet" description="Katalog içeriğini ve simülasyon verilerini kontrollü bir alanda düzenle." /><div className="admin-layout"><form className="admin-form" onSubmit={addHotel}><div><span className="section-label">YENİ KAYIT</span><h2>Otel ekle</h2></div><label className="form-field"><span>Otel adı</span><input required value={name} onChange={event => setName(event.target.value)} /></label><label className="form-field"><span>Bölge</span><input required value={district} onChange={event => setDistrict(event.target.value)} /></label><label className="form-field"><span>Şehir</span><select required value={cityId} onChange={event => setCityId(event.target.value)}><option value="">Şehir seçin</option>{cities.map(city => <option key={city.id} value={city.id}>{city.name}</option>)}</select></label><button className="primary-action" type="submit">Kataloğa ekle</button>{feedback && <FeedbackState {...feedback} />}</form><aside className="admin-summary"><h2>Yönetim kapsamı</h2><div><strong>Otel kataloğu</strong><span>Örnek otel ve konum kayıtları</span></div><div><strong>Uçuş verileri</strong><span>Sefer, fiyat ve örnek koltuk bilgileri</span></div><div><strong>Müsaitlik</strong><span>Aktiflik ve kontenjan güncellemeleri</span></div></aside></div></main>
 }
 
 function LoginPage() {
@@ -252,11 +426,22 @@ function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [localError, setLocalError] = useState('')
 
   useEffect(() => { if (user) navigate(returnTo, { replace: true }) }, [navigate, returnTo, user])
 
-  const submit = async (event: FormEvent<HTMLFormElement>) => { event.preventDefault(); clearError(); if (mode === 'register' && password !== confirm) return; const ok = mode === 'login' ? await signIn(email, password) : await register(name, email, password); if (ok) navigate(returnTo, { replace: true }) }
-  return <main className="login-page"><div className="login-card"><Link className="brand" to="/"><span className="brand-mark">BA</span><span>Bağımsız Seyahat Asistanı</span></Link><p className="eyebrow">HESAP {mode === 'login' ? 'GİRİŞİ' : 'KAYDI'}</p><h1>{mode === 'login' ? 'Yolculuğunuza başlayın' : 'Yeni hesabınızı oluşturun'}</h1><p>{mode === 'login' ? 'Rezervasyon simülasyonlarınızı hesabınıza bağlamak için giriş yapın.' : 'Ad, e-posta ve güçlü bir parola ile hesabınızı oluşturun.'}</p><div className="notice compact" role="note"><span className="notice-icon" aria-hidden="true">i</span><p>{projectIdentity.serviceDisclaimer}</p></div><form className="auth-form" onSubmit={submit} noValidate>{mode === 'register' && <label>Ad soyad<input value={name} onChange={event => setName(event.target.value)} autoComplete="name" required minLength={2} /></label>}<label>E-posta<input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required /></label><label>Parola<input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required /><small>En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.</small></label>{mode === 'register' && <label>Parola tekrarı<input type="password" value={confirm} onChange={event => setConfirm(event.target.value)} autoComplete="new-password" required /></label>}{error && <FeedbackState tone="error" title="İşlem tamamlanamadı" message={error} />}{loading && <FeedbackState tone="loading" title="İşleniyor" message="Lütfen bekleyin." />}<button type="submit" className="primary-action" disabled={loading}>{mode === 'login' ? 'Giriş yap' : 'Hesap oluştur'}</button></form><button className="back-link auth-switch" type="button" onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); clearError() }}>{mode === 'login' ? 'Yeni hesap oluştur' : 'Zaten hesabım var'}</button><Link className="back-link" to="/">Ana sayfaya dön</Link></div></main>
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    clearError()
+    setLocalError('')
+    if (mode === 'register' && password !== confirm) { setLocalError('Parolalar birbiriyle eşleşmiyor.'); return }
+    const ok = mode === 'login' ? await signIn(email, password) : await register(name, email, password)
+    if (ok) navigate(returnTo, { replace: true })
+  }
+
+  const switchMode = (next: 'login' | 'register') => { setMode(next); setLocalError(''); clearError() }
+
+  return <main className="login-page" data-testid="login-page"><section className="auth-context"><Brand /><div><span className="section-label">SEYAHAT PLANLARIN SENİNLE KALSIN</span><h1>{projectIdentity.name}</h1><p>{projectIdentity.shortDescription}</p></div><div className="auth-benefits"><span><i>✓</i> Simülasyon kayıtlarını hesabına bağla</span><span><i>✓</i> Profil ve para birimi tercihlerini koru</span></div><div className="auth-disclaimer" role="note"><span aria-hidden="true">i</span><p>{projectIdentity.serviceDisclaimer}</p></div></section><section className="auth-card"><Link className="back-home" to="/">← Ana sayfaya dön</Link><div className="auth-tabs" role="tablist" aria-label="Hesap işlemi"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => switchMode('login')}>Giriş yap</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => switchMode('register')}>Hesap oluştur</button></div><div className="auth-heading"><span className="section-label">{mode === 'login' ? 'TEKRAR HOŞ GELDİN' : 'YENİ HESAP'}</span><h2>{mode === 'login' ? 'Planlarına devam et' : 'Hesabını oluştur'}</h2><p>{mode === 'login' ? 'E-posta ve parolanla yerel demo hesabına giriş yap.' : 'Bilgilerin yalnızca yerel proje veritabanında tutulur.'}</p></div><form className="auth-form" onSubmit={submit} noValidate>{mode === 'register' && <label className="form-field"><span>Ad soyad</span><input value={name} onChange={event => setName(event.target.value)} autoComplete="name" required minLength={2} /></label>}<label className="form-field"><span>E-posta</span><input type="email" value={email} onChange={event => setEmail(event.target.value)} autoComplete="email" required /></label><label className="form-field"><span>Parola</span><input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} required />{mode === 'register' && <small>En az 8 karakter; büyük harf, küçük harf ve rakam içermeli.</small>}</label>{mode === 'register' && <label className="form-field"><span>Parola tekrarı</span><input type="password" value={confirm} onChange={event => setConfirm(event.target.value)} autoComplete="new-password" required /></label>}{(error || localError) && <FeedbackState tone="error" title="İşlem tamamlanamadı" message={localError || error || ''} />}{loading && <FeedbackState tone="loading" title="Bilgiler kontrol ediliyor" message="Lütfen kısa bir süre bekleyin." />}<button type="submit" className="primary-action auth-submit" disabled={loading}>{loading ? 'Kontrol ediliyor…' : mode === 'login' ? 'Giriş yap' : 'Hesap oluştur'} <span aria-hidden="true">→</span></button></form></section></main>
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
@@ -266,18 +451,13 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
-function PageFrame({ eyebrow, title, description, children }: { eyebrow: string; title: string; description: string; children: ReactNode }) {
-  return <section className="page-frame"><div className="page-heading"><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p className="lead">{description}</p></div>{children}</section>
+function PageHeading({ label, title, description }: { label: string; title: string; description: string }) {
+  return <header className="page-heading"><span className="section-label">{label}</span><h1>{title}</h1><p>{description}</p></header>
 }
 
 function NotFoundPage() {
   const navigate = useNavigate()
-  return <PageFrame eyebrow="404" title="Bu sayfayı bulamadık" description="Adres geçersiz veya sayfa henüz hazır değil."><FeedbackState tone="empty" title="Ana sayfaya dönün" message="Menüden uygulamanın kullanılabilir bölümlerinden birini seçebilirsiniz." actionLabel="Ana sayfaya dön" onAction={() => navigate('/')} /></PageFrame>
-}
-
-function StatusCard({ title, detail, state, number }: { title: string; detail: string; state: HealthState; number: string }) {
-  const label = state === 'healthy' ? 'Hazır' : state === 'loading' ? 'Kontrol ediliyor' : 'Bağlantı yok'
-  return <article className={`status-card ${state}`}><div className="card-number">{number}</div><div className="card-content"><h3>{title}</h3><p>{detail}</p></div><span className="card-status"><span className="status-dot" aria-hidden="true" />{label}</span></article>
+  return <main className="page-frame not-found-page"><div className="not-found-code">404</div><PageHeading label="YOLUN DIŞINA ÇIKTIK" title="Bu sayfayı bulamadık" description="Adres değişmiş veya aradığın sayfa bu demoda yer almıyor olabilir." /><button className="primary-action" type="button" onClick={() => navigate('/')}>Ana sayfaya dön</button></main>
 }
 
 export default App

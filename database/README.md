@@ -8,15 +8,10 @@ Uygulama Docker gerektirmez. PostgreSQL Windows servisi olarak çalışabilir.
    Get-Service postgresql*
    ```
 
-2. PostgreSQL yöneticisiyle veritabanı ve uygulama kullanıcısını oluşturun:
+2. `backend/TravelAssistant.Api/appsettings.Local.example.json` dosyasını `appsettings.Local.json` adıyla kopyalayın. Bağlantı dizesindeki parolayı yerel `postgres` yönetici parolasıyla değiştirin.
 
-   ```sql
-   CREATE USER travel_assistant WITH PASSWORD 'yerel-gelistirme-parolaniz';
-   CREATE DATABASE travel_assistant OWNER travel_assistant;
-   ```
+3. Backend'i başlatın. Geliştirme ortamında uygulama eksik `travel_assistant` rolünü ve veritabanını oluşturur, ardından `init` klasöründeki migration'ları dosya adı sırasıyla uygular.
 
-3. `backend/TravelAssistant.Api/appsettings.Local.json` içindeki bağlantı dizesinde aynı kullanıcı, parola, veritabanı ve `localhost:5432` bilgilerini kullanın.
+4. `http://localhost:5080/api/health` adresinde `database.status = healthy` değerini kontrol edin.
 
-4. `init/001-initialize.sql` dosyasını `travel_assistant` veritabanına pgAdmin Query Tool veya `psql` ile bir kez uygulayın.
-
-5. Backend'i başlatıp `http://localhost:5080/api/health` adresinde `database.status = healthy` değerini kontrol edin.
+Uygulanan migration dosyaları `schema_migrations` tablosunda tutulur. Yeni bir şema değişikliği için `002-aciklayici-ad.sql` gibi yeni bir dosya ekleyin; daha önce uygulanmış dosyaları değiştirmeyin. Otomatik rol ve veritabanı oluşturma yalnızca geliştirme ortamında açıktır. Ayrı yönetici kimliği gereken ortamlarda `ConnectionStrings__PostgresAdmin` kullanılabilir.

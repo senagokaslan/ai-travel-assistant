@@ -10,21 +10,21 @@ Bu belge, giriş sayfası, ana sayfa ve proje tanıtımında kullanılacak metin
 
 **Hizmet sınırı:** Bağımsız AI Destekli Seyahat Asistanı gerçek rezervasyon oluşturmaz, uçak bileti düzenlemez ve gerçek ödeme almaz; hiçbir işlemi otel, havayolu veya üçüncü taraf sağlayıcılara göndermez.
 
-Bu üç metin giriş sayfasında, ana sayfada ve proje tanıtımında anlamı değiştirilmeden kullanılmalıdır. Arayüz tamamlandığında metinler kopyalanmamalı; `content/project-identity.json` dosyasından okunmalıdır.
+Bu üç metin giriş sayfasında, ana sayfada ve proje tanıtımında anlamı değiştirilmeden kullanılmalıdır. Arayüz tamamlandığında metinler kopyalanmamalı; `content/project-identity.json` dosyasından okunmalıdır. Sayfanın ana eylemini daha iyi anlatan kullanıcı odaklı bir ekran başlığı kullanılabilir; bu durumda proje adı aynı görünümde belirgin ve erişilebilir kalmalıdır.
 
 ## Ekran kullanımı
 
 ### Giriş sayfası
 
-- Başlık: `Bağımsız AI Destekli Seyahat Asistanı`
+- Proje adı: `Bağımsız AI Destekli Seyahat Asistanı`; formun yanındaki tanıtım alanında belirgin olmalı
 - Açıklama: ortak kısa açıklama
-- Uyarı: ortak hizmet sınırı; formun hemen yakınında ve kullanıcı giriş yapmadan önce görünür olmalı
+- Uyarı: ortak hizmet sınırı; kullanıcı giriş yapmadan önce görünür olmalı, ancak form alanlarıyla rekabet etmemeli
 
 ### Ana sayfa
 
-- Başlık: `Bağımsız AI Destekli Seyahat Asistanı`
+- Proje adı: `Bağımsız AI Destekli Seyahat Asistanı`; ilk görünümde kullanıcı odaklı ana başlıkla birlikte yer almalı
 - Açıklama: ortak kısa açıklama
-- Uyarı: ortak hizmet sınırı; ilk görünümde veya tanıtım alanının hemen altında görünür olmalı
+- Uyarı: ortak hizmet sınırı; ilk arama başlangıcının hemen altında görünür olmalı ve sayfada gereksiz yere tekrarlanmamalı
 
 ### Proje tanıtımı
 

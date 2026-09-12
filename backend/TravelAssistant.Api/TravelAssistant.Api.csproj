@@ -12,4 +12,8 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.6.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\database\init\*.sql" Link="Database\Migrations\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>
