@@ -19,6 +19,9 @@ type SearchForm = {
 }
 
 type LocationOption = { key: string; label: string; city: string; district?: string; type: 'city' | 'hotel' }
+type HotelNightPrice = { date: string; price: number; available: number }
+type HotelRoomSelection = { roomId: string; name: string; quantity: number; capacity: number; features: string[]; nightlyTotal: number; lineTotal: number; nights: HotelNightPrice[] }
+type HotelRoomOption = { key: string; totalPrice: number; totalCapacity: number; rooms: HotelRoomSelection[] }
 type HotelResult = {
   id: string
   name: string
@@ -30,6 +33,7 @@ type HotelResult = {
   rooms: string[]
   features: string[]
   totalPrice: number
+  options: HotelRoomOption[]
 }
 
 const FEATURE_OPTIONS = ['Wi-Fi', 'Kahvaltı', 'Havuz', 'Otopark']
@@ -53,6 +57,10 @@ function daysBetween(start: string, end: string) {
 function formatDate(value: string) {
   if (!value) return '—'
   return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(`${value}T12:00:00`))
+}
+
+function formatStayDate(value: string) {
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(`${value}T12:00:00`))
 }
 
 function normalize(value: string) {
@@ -102,7 +110,6 @@ function validate(form: SearchForm) {
   if (!Number.isInteger(children) || children < 0 || children > 8) errors.childCount = 'Çocuk sayısı 0–8 arasında olmalı.'
   if (form.childAges.length !== children || form.childAges.some(age => age === '')) errors.childAges = 'Her çocuk için yaş seçin.'
   else if (form.childAges.some(age => Number(age) < 0 || Number(age) > 17)) errors.childAges = 'Çocuk yaşları 0–17 arasında olmalı.'
-  if (Number.isInteger(rooms) && Number.isInteger(adults) && Number.isInteger(children) && adults + children > rooms * 4) errors.guests = 'Bir oda için en fazla 4 misafir seçilebilir. Oda sayısını artırın.'
   const min = form.minPrice === '' ? null : Number(form.minPrice)
   const max = form.maxPrice === '' ? null : Number(form.maxPrice)
   if (min !== null && (Number.isNaN(min) || min < 0)) errors.minPrice = 'Geçerli bir en düşük fiyat yazın.'
@@ -149,13 +156,13 @@ export function HotelSearchPage() {
 
   const update = (key: keyof SearchForm, value: string | string[]) => {
     setForm(current => ({ ...current, [key]: value }))
-    setErrors(current => { const next = { ...current }; delete next[key]; delete next.guests; return next })
+    setErrors(current => { const next = { ...current }; delete next[key]; return next })
   }
 
   const updateChildCount = (value: string) => {
     const count = Number(value)
     setForm(current => ({ ...current, childCount: value, childAges: Array.from({ length: count }, (_, index) => current.childAges[index] ?? '') }))
-    setErrors(current => { const next = { ...current }; delete next.childCount; delete next.childAges; delete next.guests; return next })
+    setErrors(current => { const next = { ...current }; delete next.childCount; delete next.childAges; return next })
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -200,8 +207,7 @@ export function HotelSearchPage() {
           <label className="form-field"><span>Yetişkin<i>*</i></span><select value={form.adults} onChange={event => update('adults', event.target.value)} aria-invalid={Boolean(errors.adults)}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select><ErrorText message={errors.adults} /></label>
           <label className="form-field"><span>Çocuk<i>*</i></span><select value={form.childCount} onChange={event => updateChildCount(event.target.value)} aria-invalid={Boolean(errors.childCount)}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select><ErrorText message={errors.childCount} /></label>
         </div>
-        {form.childAges.length > 0 && <fieldset className="child-ages"><legend>Çocuk yaşları <i>*</i></legend><p>Konaklama başlangıcındaki yaşları seçin.</p><div>{form.childAges.map((age, index) => <label className="form-field" key={index}><span>{index + 1}. çocuk</span><select value={age} onChange={event => { const ages = [...form.childAges]; ages[index] = event.target.value; update('childAges', ages) }} aria-label={`${index + 1}. çocuğun yaşı`}><option value="">Yaş seçin</option>{Array.from({ length: 18 }, (_, ageValue) => <option key={ageValue} value={ageValue}>{ageValue} yaş</option>)}</select></label>)}</div><ErrorText message={errors.childAges ?? errors.guests} /></fieldset>}
-        {!form.childAges.length && <ErrorText message={errors.guests} />}
+        {form.childAges.length > 0 && <fieldset className="child-ages"><legend>Çocuk yaşları <i>*</i></legend><p>Konaklama başlangıcındaki yaşları seçin.</p><div>{form.childAges.map((age, index) => <label className="form-field" key={index}><span>{index + 1}. çocuk</span><select value={age} onChange={event => { const ages = [...form.childAges]; ages[index] = event.target.value; update('childAges', ages) }} aria-label={`${index + 1}. çocuğun yaşı`}><option value="">Yaş seçin</option>{Array.from({ length: 18 }, (_, ageValue) => <option key={ageValue} value={ageValue}>{ageValue} yaş</option>)}</select></label>)}</div><ErrorText message={errors.childAges} /></fieldset>}
 
         <button className="filter-toggle" type="button" aria-expanded={showFilters} onClick={() => setShowFilters(value => !value)}><span><b>İsteğe bağlı filtreler</b><small>Yıldız, toplam fiyat, pansiyon ve özellik</small></span>{activeFilterCount > 0 && <em>{activeFilterCount} seçili</em>}<i aria-hidden="true">{showFilters ? '−' : '+'}</i></button>
         {showFilters && <div className="optional-filters">
@@ -242,9 +248,13 @@ export function HotelResultsPage() {
         const min = form.minPrice ? Number(form.minPrice) : 0
         const max = form.maxPrice ? Number(form.maxPrice) : Number.POSITIVE_INFINITY
         const wantedStars = form.stars ? Number(form.stars) : 0
-        const filtered = data.filter(hotel => hotel.stars >= wantedStars && hotel.totalPrice >= min && hotel.totalPrice <= max)
-          .filter(hotel => form.features.every(feature => hotel.features.includes(feature)))
-          .filter(hotel => !form.board || (form.board === 'breakfast' ? hotel.features.includes('Kahvaltı') : form.board === 'room' ? !hotel.features.includes('Kahvaltı') : false))
+        const filtered = data.filter(hotel => hotel.stars >= wantedStars).map(hotel => {
+          const options = hotel.options.filter(option => option.totalPrice >= min && option.totalPrice <= max)
+            .filter(option => form.features.every(feature => option.rooms.some(room => room.features.includes(feature))))
+            .filter(option => !form.board || (form.board === 'breakfast' ? option.rooms.some(room => room.features.includes('Kahvaltı')) : form.board === 'room' ? option.rooms.every(room => !room.features.includes('Kahvaltı')) : false))
+            .slice(0, 8)
+          return { ...hotel, options, totalPrice: options[0]?.totalPrice ?? hotel.totalPrice }
+        }).filter(hotel => hotel.options.length > 0)
         setResults(filtered)
         setState('ready')
       }).catch(error => { if (error.name !== 'AbortError') setState('error') })
@@ -297,7 +307,7 @@ export function HotelResultsPage() {
         {visibleState === 'loading' && <HotelLoadingCards />}
         {visibleState === 'error' && <FeedbackState tone="error" title="Sonuçlar gösterilemedi" message={invalidSearch ? 'Arama bilgileri geçersiz veya eksik. Formu açıp bilgileri düzeltin.' : 'Otel kataloğuna ulaşılamadı. API bağlantısını kontrol edip tekrar deneyin.'} actionLabel="Aramayı düzenle" onAction={() => navigate(`/hotels?${searchQuery}`)} />}
         {visibleState === 'ready' && results.length === 0 && <FeedbackState tone="empty" title="Bu ölçütlerle otel bulunamadı" message="Tarihleri, misafir sayısını veya filtreleri değiştirerek yeniden arayın." actionLabel={activeCriteria.length ? 'Filtreleri temizle' : 'Aramayı düzenle'} onAction={activeCriteria.length ? clearFilters : () => navigate(`/hotels?${searchQuery}`)} />}
-        {visibleState === 'ready' && results.length > 0 && <div className="hotel-result-list">{displayResults.map(hotel => <article key={hotel.id} className="hotel-result-card"><div className="hotel-result-marker"><span><Icon name="hotel" size={24} /></span><small>{hotel.city}</small></div><div className="hotel-result-copy"><div className="hotel-title-row"><div><span className="stars" aria-label={`${hotel.stars} yıldız`}>{'★'.repeat(hotel.stars)}</span><h2>{hotel.name}</h2><p><Icon name="map-pin" size={14} />{hotel.district}, {hotel.city}</p></div><span className="rating-badge"><strong>{hotel.rating.toLocaleString('tr-TR')}</strong><small>5 üzerinden</small></span></div><p className="hotel-description">{hotel.description}</p><div className="hotel-tags">{hotel.rooms.map(room => <span key={room}>{room}</span>)}{hotel.features.map(feature => <span key={feature}>{feature}</span>)}</div></div><div className="hotel-price"><small>Toplam örnek fiyat</small><strong>{hotel.totalPrice.toLocaleString('tr-TR')} TL</strong><span>{nights} gece · {form.rooms} oda</span><p>Gerçek rezervasyon ve ödeme içermez.</p></div></article>)}</div>}
+        {visibleState === 'ready' && results.length > 0 && <div className="hotel-result-list">{displayResults.map(hotel => <article key={hotel.id} className="hotel-result-card availability-result-card"><div className="hotel-result-marker"><span><Icon name="hotel" size={24} /></span><small>{hotel.city}</small></div><div className="hotel-result-copy"><div className="hotel-title-row"><div><span className="stars" aria-label={`${hotel.stars} yıldız`}>{'★'.repeat(hotel.stars)}</span><h2>{hotel.name}</h2><p><Icon name="map-pin" size={14} />{hotel.district}, {hotel.city}</p></div><span className="rating-badge"><strong>{hotel.rating.toLocaleString('tr-TR')}</strong><small>5 üzerinden</small></span></div><p className="hotel-description">{hotel.description}</p><div className="availability-badge"><span aria-hidden="true">✓</span> Girişten çıkışa kadar her gece müsait</div><div className="room-options">{hotel.options.map((option, optionIndex) => <section className="room-option" key={option.key}><header><div><b>Oda seçeneği {optionIndex + 1}</b><span>{form.rooms} oda · toplam {option.totalCapacity} kişi kapasitesi</span></div><strong>{option.totalPrice.toLocaleString('tr-TR')} TL<small>konaklama toplamı</small></strong></header><div className="room-option-lines">{option.rooms.map(room => <details key={room.roomId}><summary><span><b>{room.quantity} × {room.name}</b><small>Oda başına {room.capacity} kişi · {room.features.join(', ') || 'Standart özellikler'}</small></span><strong>{room.lineTotal.toLocaleString('tr-TR')} TL</strong></summary><div className="nightly-breakdown"><p>Her gece ayrı ayrı doğrulandı</p>{room.nights.map(night => <span key={night.date}><time dateTime={night.date}>{formatStayDate(night.date)}</time><b>{night.price.toLocaleString('tr-TR')} TL / oda</b><small>{night.available} oda müsait</small></span>)}</div></details>)}</div></section>)}</div></div><div className="hotel-price"><small>En düşük toplam</small><strong>{hotel.totalPrice.toLocaleString('tr-TR')} TL</strong><span>{nights} gece · {form.rooms} oda</span><p>Gerçek rezervasyon ve ödeme içermez.</p></div></article>)}</div>}
       </section>
     </div>
   </main>

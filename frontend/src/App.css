@@ -208,6 +208,28 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .hotel-description { margin: 16px 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .hotel-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .hotel-tags span { background: var(--surface-soft); }
+.availability-result-card { align-items: stretch; }
+.availability-badge { width: fit-content; margin: 15px 0; padding: 7px 10px; display: flex; align-items: center; gap: 7px; color: var(--success); background: var(--success-soft); border-radius: 8px; font-size: 10px; font-weight: 800; }
+.availability-badge span { width: 17px; height: 17px; display: grid; place-items: center; color: #fff; background: var(--success); border-radius: 50%; }
+.room-options { display: grid; gap: 9px; }
+.room-option { overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+.room-option > header { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: var(--surface-soft); border-bottom: 1px solid var(--line); }
+.room-option > header div { display: grid; gap: 2px; }
+.room-option > header b { color: var(--brand); font-family: Manrope, sans-serif; font-size: 12px; }
+.room-option > header span { color: var(--muted); font-size: 10px; }
+.room-option > header > strong { color: var(--brand); font-family: Manrope, sans-serif; font-size: 15px; text-align: right; }
+.room-option > header > strong small { display: block; color: var(--muted); font-family: Inter, sans-serif; font-size: 8px; font-weight: 500; }
+.room-option-lines details + details { border-top: 1px solid var(--line); }
+.room-option-lines summary { padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 16px; color: #315849; cursor: pointer; list-style-position: inside; }
+.room-option-lines summary > span { display: inline-grid; gap: 3px; vertical-align: middle; }
+.room-option-lines summary b { font-size: 11px; }
+.room-option-lines summary small { color: var(--muted); font-size: 9px; font-weight: 500; }
+.room-option-lines summary > strong { margin-left: auto; flex: 0 0 auto; font-size: 11px; }
+.nightly-breakdown { padding: 4px 14px 12px 35px; display: grid; gap: 4px; }
+.nightly-breakdown p { margin: 0 0 3px; color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+.nightly-breakdown > span { padding: 6px 8px; display: grid; grid-template-columns: 80px 1fr auto; gap: 10px; color: var(--muted); background: var(--surface-soft); border-radius: 6px; font-size: 9px; }
+.nightly-breakdown time, .nightly-breakdown b { color: var(--brand); font-weight: 700; }
+.nightly-breakdown small { color: var(--success); }
 .hotel-price { padding: 23px; display: flex; flex-direction: column; align-items: flex-end; justify-content: center; border-left: 1px solid var(--line); text-align: right; }
 .hotel-price > small { color: var(--muted); font-size: 10px; }
 .hotel-price strong { margin-top: 5px; color: var(--brand); font-family: Manrope, sans-serif; font-size: 21px; }
@@ -424,6 +446,10 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .hotel-result-copy { padding: 19px; }
   .hotel-title-row { align-items: flex-start; }
   .hotel-title-row h2 { font-size: 19px; }
+  .room-option > header, .room-option-lines summary { align-items: flex-start; flex-direction: column; }
+  .room-option > header > strong { text-align: left; }
+  .nightly-breakdown { padding-left: 14px; }
+  .nightly-breakdown > span { grid-template-columns: 1fr; gap: 2px; }
   .hotel-skeleton { height: 160px; grid-template-columns: 70px 1fr; }
   .hotel-skeleton b { display: none; }
   .feedback-state { align-items: flex-start; flex-wrap: wrap; }
