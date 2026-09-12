@@ -1,6 +1,6 @@
 # Bağımsız AI Destekli Seyahat Asistanı
 
-Bağımsız AI Destekli Seyahat Asistanı, yerel örnek veriler ve yapay zekâ destekli sohbetle otel ve uçuş aramayı, seçenekleri karşılaştırmayı ve eğitim amaçlı rezervasyon simülasyonu oluşturmayı sağlar.
+Bağımsız AI Destekli Seyahat Asistanı, yerel örnek veriler ve yapay zekâ destekli sohbetle otel ve uçuş aramayı, seçenekleri karşılaştırmayı amaçlayan rezervasyon simülasyonu oluşturmayı sağlar.
 
 > Bağımsız AI Destekli Seyahat Asistanı gerçek rezervasyon oluşturmaz, uçak bileti düzenlemez ve gerçek ödeme almaz; hiçbir işlemi otel, havayolu veya üçüncü taraf sağlayıcılara göndermez.
 
@@ -8,7 +8,7 @@ Bağımsız AI Destekli Seyahat Asistanı, yerel örnek veriler ve yapay zekâ d
 
 - Form veya sohbet üzerinden örnek otel ve uçuş verilerinde arama
 - Sonuçları fiyat, özellik, yıldız, havayolu ve aktarma gibi ölçütlerle karşılaştırma
-- Kullanıcı onayıyla eğitim amaçlı rezervasyon simülasyonu kaydı oluşturma
+- Kullanıcı onayıyla rezervasyon simülasyonu kaydı oluşturma
 - Simülasyon kayıtlarını görüntüleme ve uygun olanları iptal etme
 - Admin rolüyle örnek seyahat, fiyat ve müsaitlik verilerini yönetme
 
