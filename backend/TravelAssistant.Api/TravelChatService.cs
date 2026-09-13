@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Npgsql;
 
@@ -30,6 +31,13 @@ internal static partial class TravelChatService
     {
         var context = await LoadContextAsync(connection, conversationId, cancellationToken);
         var normalized = Normalize(latestMessage);
+        context.AppliedChange = null;
+        context.InvalidCommand = null;
+        context.IsFilterChange = false;
+        context.IsFilterRemoval = false;
+        context.PreviousSortPreference = context.SortPreference;
+        context.PreviousNonstopOnly = context.NonstopOnly;
+        context.PreviousHotelStars = context.HotelStars;
         var routing = Classify(context, normalized);
         context.LastClassification = routing.Classification;
         context.LastConfidence = routing.Confidence;
@@ -55,8 +63,17 @@ internal static partial class TravelChatService
         if (routing.Intent is not null && context.Intent != routing.Intent) ResetContext(context, routing.Intent);
         else if (routing.Intent is not null) context.Intent = routing.Intent;
 
+        var hadSearchBase = context.HasSearchBase;
+        var previousDates = (context.DepartureDate, context.ReturnDate, context.CheckIn, context.CheckOut);
+        var previousPassengers = (context.Adults, context.Children, context.Infants, context.Rooms);
+        UpdateResultCriteria(context, normalized);
         UpdateDates(context, latestMessage, normalized);
         UpdateCounts(context, normalized);
+
+        if (hadSearchBase && context.AppliedChange is null && previousDates != (context.DepartureDate, context.ReturnDate, context.CheckIn, context.CheckOut))
+            context.AppliedChange = "Tarih bilgisi güncellendi";
+        if (hadSearchBase && previousPassengers != (context.Adults, context.Children, context.Infants, context.Rooms))
+            context.AppliedChange = context.AppliedChange is null ? "Yolcu bilgisi güncellendi" : $"{context.AppliedChange}; yolcu bilgisi güncellendi";
 
         if (context.Intent == "flight")
         {
@@ -65,6 +82,12 @@ internal static partial class TravelChatService
         else if (context.Intent == "hotel")
         {
             await UpdateHotelLocationAsync(connection, context, normalized, cancellationToken);
+        }
+
+        if (context.InvalidCommand is not null)
+        {
+            reply = BuildPromptReply(context, context.InvalidCommand, "Geçerli filtre");
+            return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
         }
 
         reply = context.Intent switch
@@ -107,7 +130,7 @@ internal static partial class TravelChatService
 
         if (Regex.IsMatch(text, @"\b(futbol|mac|borsa|hisse|kripto|yemek|tarif|kod|programlama|siyaset|film|muzik|hava durumu)\b"))
             return new RouteDecision("out-of-scope", null, "high");
-        if (context.Intent is "flight" or "hotel" && (context.Awaiting is not null || CountRegex().IsMatch(text) || DateRegex().IsMatch(text) || NaturalDateRegex().IsMatch(text) || Regex.IsMatch(text, @"\b(olsun|yerine|degistir|guncelle|duzelt|yarin|haftaya|cikis|giris)\b")))
+        if (context.Intent is "flight" or "hotel" && (context.Awaiting is not null || CountRegex().IsMatch(text) || DateRegex().IsMatch(text) || NaturalDateRegex().IsMatch(text) || Regex.IsMatch(text, @"\b(olsun|yerine|degistir|guncelle|duzelt|yarin|haftaya|cikis|giris|ucuz\w*|yildiz|aktarmasiz|direkt|filtre\w*|tumunu|hepsini|ileri|geri)\b")))
             return new RouteDecision("continuation", context.Intent, "medium");
         if (Regex.IsMatch(text, @"\b(seyahat|tatil|gezi|gitmek|plan)\b") || text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 3)
             return new RouteDecision("ambiguous", null, "low");
@@ -121,6 +144,80 @@ internal static partial class TravelChatService
         context.DepartureDate = null; context.ReturnDate = null; context.HotelLocation = null;
         context.CheckIn = null; context.CheckOut = null; context.Adults = null; context.Children = null;
         context.Infants = null; context.Rooms = null; context.Nights = null; context.DateAmbiguous = false; context.LocationError = null; context.Awaiting = null;
+        context.SortPreference = null; context.NonstopOnly = false; context.HotelStars = null; context.HasSearchBase = false;
+    }
+
+    private static void UpdateResultCriteria(ChatContext context, string text)
+    {
+        var allowsStops = Regex.IsMatch(text, @"\b(aktarmali da|aktarma olabilir|direkt olmasin)\b");
+        var mentionsNonstop = Regex.IsMatch(text, @"\b(aktarmasiz|direkt)\b");
+        var hasNonstop = mentionsNonstop && !allowsStops;
+        if (mentionsNonstop && allowsStops)
+        {
+            context.InvalidCommand = "Aynı anda hem aktarmasız hem aktarmalı seçenek isteyemezsin. Hangisini tercih ettiğini yazar mısın?";
+            return;
+        }
+
+        if (Regex.IsMatch(text, @"\b(filtreleri? kaldir|filtreyi sifirla|tumunu goster|hepsini goster)\b"))
+        {
+            context.SortPreference = null; context.NonstopOnly = false; context.HotelStars = null;
+            context.IsFilterChange = true; context.IsFilterRemoval = true; context.AppliedChange = "Tüm sonuç filtreleri kaldırıldı";
+            return;
+        }
+
+        var starMatch = Regex.Match(text, @"\b(\d{1,2}|bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on)\s*yildiz(?:li)?\b");
+        if (starMatch.Success)
+        {
+            var stars = int.TryParse(starMatch.Groups[1].Value, out var parsed) ? parsed : TurkishNumbers.GetValueOrDefault(starMatch.Groups[1].Value);
+            if (context.Intent != "hotel") context.InvalidCommand = "Yıldız filtresi yalnızca otel sonuçlarına uygulanabilir.";
+            else if (stars is < 1 or > 5) context.InvalidCommand = "Otel yıldız filtresi 1–5 arasında olmalı.";
+            else { context.HotelStars = stars; context.IsFilterChange = true; context.AppliedChange = $"Yalnızca {stars} yıldızlı oteller gösteriliyor"; }
+            return;
+        }
+
+        if (hasNonstop)
+        {
+            if (context.Intent != "flight") context.InvalidCommand = "Aktarmasız filtresi yalnızca uçuş sonuçlarına uygulanabilir.";
+            else { context.NonstopOnly = true; context.IsFilterChange = true; context.AppliedChange = "Yalnızca aktarmasız uçuşlar gösteriliyor"; }
+            return;
+        }
+        if (allowsStops)
+        {
+            if (context.Intent != "flight") context.InvalidCommand = "Aktarma filtresi yalnızca uçuş sonuçlarına uygulanabilir.";
+            else { context.NonstopOnly = false; context.IsFilterChange = true; context.AppliedChange = "Aktarmalı uçuşlar yeniden gösteriliyor"; }
+            return;
+        }
+        if (Regex.IsMatch(text, @"\b(daha ucuz\w*|en ucuz\w*|ucuza gore)\b"))
+        {
+            context.SortPreference = "price"; context.IsFilterChange = true; context.AppliedChange = "Sonuçlar en ucuzdan sıralandı";
+            return;
+        }
+
+        var shiftMatch = Regex.Match(text, @"\b(\d{1,2}|bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on)\s*gun\s*(ileri|geri)\b");
+        if (shiftMatch.Success)
+        {
+            var days = int.TryParse(shiftMatch.Groups[1].Value, out var parsed) ? parsed : TurkishNumbers.GetValueOrDefault(shiftMatch.Groups[1].Value);
+            if (shiftMatch.Groups[2].Value == "geri") days *= -1;
+            if (context.Intent == "flight" && context.DepartureDate is not null)
+            {
+                context.DepartureDate = context.DepartureDate.Value.AddDays(days);
+                if (context.ReturnDate is not null) context.ReturnDate = context.ReturnDate.Value.AddDays(days);
+                context.AppliedChange = $"Uçuş tarihleri {Math.Abs(days)} gün {(days > 0 ? "ileri" : "geri")} alındı";
+            }
+            else if (context.Intent == "hotel" && context.CheckIn is not null)
+            {
+                context.CheckIn = context.CheckIn.Value.AddDays(days);
+                if (context.CheckOut is not null) context.CheckOut = context.CheckOut.Value.AddDays(days);
+                context.AppliedChange = $"Konaklama tarihleri {Math.Abs(days)} gün {(days > 0 ? "ileri" : "geri")} alındı";
+            }
+            else context.InvalidCommand = "Tarihi kaydırabilmem için önce aramadaki tarihi belirtmelisin.";
+            return;
+        }
+
+        if (Regex.IsMatch(text, @"\b(yalnizca|filtrele|filtre)\b"))
+            context.InvalidCommand = context.Intent == "flight"
+                ? "Bu uçuş filtresini anlayamadım. ‘Aktarmasız olsun’, ‘daha ucuzlarını göster’ veya ‘filtreleri kaldır’ diyebilirsin."
+                : "Bu otel filtresini anlayamadım. ‘Yalnızca dört yıldız’, ‘daha ucuzlarını göster’ veya ‘filtreleri kaldır’ diyebilirsin.";
     }
 
     private static void UpdateDates(ChatContext context, string original, string normalized)
@@ -316,6 +413,8 @@ internal static partial class TravelChatService
     {
         if (context.LocationError is not null)
             return BuildPromptReply(context, context.LocationError, "Havaalanı olan şehir");
+        if (context.IsFilterChange && !context.IsFilterRemoval && !context.HasSearchBase)
+            return RejectFilterWithoutResults(context, "uçuş");
         if (context.PendingCity is not null)
         {
             await using var command = new NpgsqlCommand("SELECT BTRIM(a.iata_code) || ' — ' || a.name FROM airports a JOIN travel_cities c ON c.id=a.city_id WHERE a.is_active AND c.name=@city ORDER BY a.iata_code", connection);
@@ -344,23 +443,36 @@ internal static partial class TravelChatService
         if (adults + children + infants > 20) return BuildPromptReply(context, "Toplam yolcu sayısı 20’yi aşamaz. Yolcu sayılarını günceller misin?", "En fazla 20 yolcu");
         var seated = adults + children;
         var outbound = await FlightSearchService.SearchAsync(connection, context.Origin, context.Destination, context.DepartureDate.Value, seated, cancellationToken);
-        var results = new List<object>();
+        var allResults = new List<FlightChatResult>();
         if (context.TripType == "round-trip")
         {
             var inbound = await FlightSearchService.SearchAsync(connection, context.Destination, context.Origin, context.ReturnDate!.Value, seated, cancellationToken);
-            results.AddRange(outbound.SelectMany(outboundItem => inbound.Where(inboundItem => inboundItem.Fare.Currency == outboundItem.Fare.Currency).Select(inboundItem => ToFlightResult(outboundItem, inboundItem, adults + children + infants))).OrderBy(item => item.TotalPrice).Take(3));
+            allResults.AddRange(outbound.SelectMany(outboundItem => inbound.Where(inboundItem => inboundItem.Fare.Currency == outboundItem.Fare.Currency).Select(inboundItem => ToFlightResult(outboundItem, inboundItem, adults + children + infants))));
         }
-        else results.AddRange(outbound.Select(item => ToFlightResult(item, null, adults + children + infants)).OrderBy(item => item.TotalPrice).Take(3));
+        else allResults.AddRange(outbound.Select(item => ToFlightResult(item, null, adults + children + infants)));
+
+        context.HasSearchBase = allResults.Count > 0;
+        IEnumerable<FlightChatResult> filteredResults = allResults;
+        if (context.NonstopOnly) filteredResults = filteredResults.Where(item => item.Stops == 0);
+        filteredResults = context.SortPreference == "price"
+            ? filteredResults.OrderBy(item => item.TotalPrice).ThenBy(item => item.DurationMinutes)
+            : filteredResults.OrderBy(item => item.TotalPrice);
+        var results = filteredResults.Take(3).ToArray();
 
         var query = $"from={context.Origin}&to={context.Destination}&date={context.DepartureDate:yyyy-MM-dd}&tripType={context.TripType}&adults={adults}&children={children}&infants={infants}" + (context.ReturnDate is null ? "" : $"&returnDate={context.ReturnDate:yyyy-MM-dd}");
         context.Awaiting = null;
-        var metadata = new { intent = "flight", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}" };
-        var message = results.Count == 0 ? "Bu bilgilerle uygun uçuş bulamadım. Tarihi veya rotayı değiştirerek tekrar deneyebiliriz." : $"{context.Origin}–{context.Destination} rotasında en uygun {results.Count} seçeneği buldum.";
+        var metadata = new { intent = "flight", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}", appliedChange = context.AppliedChange };
+        var change = context.AppliedChange is null ? "" : $"{context.AppliedChange}. ";
+        var message = results.Length == 0
+            ? context.HasSearchBase ? $"{change}Bu filtrelerle eşleşen uçuş kalmadı. Filtreyi değiştirebilir veya kaldırabilirsin." : $"{change}Bu bilgilerle uygun uçuş bulamadım. Tarihi veya rotayı değiştirerek tekrar deneyebiliriz."
+            : $"{change}{context.Origin}–{context.Destination} rotasında {results.Length} seçenek gösteriyorum.";
         return new ChatReply(message, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
     private static async Task<ChatReply> BuildHotelReplyAsync(NpgsqlConnection connection, ChatContext context, CancellationToken cancellationToken)
     {
+        if (context.IsFilterChange && !context.IsFilterRemoval && !context.HasSearchBase)
+            return RejectFilterWithoutResults(context, "otel");
         if (context.CheckIn is not null && context.Nights is > 0) context.CheckOut = context.CheckIn.Value.AddDays(context.Nights.Value);
         var missing = new List<string>();
         if (context.HotelLocation is null) missing.Add("şehir veya bölge");
@@ -398,10 +510,17 @@ internal static partial class TravelChatService
         var adults = context.Adults!.Value; var children = context.Children ?? 0; var rooms = context.Rooms!.Value;
         var hotels = await HotelAvailabilityService.SearchAsync(connection, location, checkIn, checkOut, rooms, adults + children, cancellationToken);
         var query = $"q={Uri.EscapeDataString(location)}&checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&rooms={rooms}&adults={adults}&children={children}";
-        var results = hotels.Take(3).Select(hotel => new { kind = "hotel", hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.TotalPrice, currency = "TRY", detailUrl = $"/hotels/{hotel.Id}?{query}&option={Uri.EscapeDataString(hotel.Options[0].Key)}&quotedTotal={hotel.TotalPrice.ToString(CultureInfo.InvariantCulture)}" }).ToArray();
+        context.HasSearchBase = hotels.Count > 0;
+        IEnumerable<HotelAvailabilityResult> filteredHotels = hotels;
+        if (context.HotelStars is not null) filteredHotels = filteredHotels.Where(hotel => hotel.Stars == context.HotelStars);
+        filteredHotels = context.SortPreference == "price" ? filteredHotels.OrderBy(hotel => hotel.TotalPrice).ThenByDescending(hotel => hotel.Rating) : filteredHotels;
+        var results = filteredHotels.Take(3).Select(hotel => new { kind = "hotel", hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.TotalPrice, currency = "TRY", detailUrl = $"/hotels/{hotel.Id}?{query}&option={Uri.EscapeDataString(hotel.Options[0].Key)}&quotedTotal={hotel.TotalPrice.ToString(CultureInfo.InvariantCulture)}" }).ToArray();
         context.Awaiting = null;
-        var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}" };
-        var message = results.Length == 0 ? "Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz." : $"{location} için en uygun {results.Length} oteli buldum.";
+        var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}", appliedChange = context.AppliedChange };
+        var change = context.AppliedChange is null ? "" : $"{context.AppliedChange}. ";
+        var message = results.Length == 0
+            ? context.HasSearchBase ? $"{change}Bu filtrelerle eşleşen otel kalmadı. Filtreyi değiştirebilir veya kaldırabilirsin." : $"{change}Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz."
+            : $"{change}{location} için {results.Length} otel gösteriyorum.";
         return new ChatReply(message, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
@@ -411,10 +530,19 @@ internal static partial class TravelChatService
     private static ChatReply BuildPromptReply(ChatContext context, string content, string missing)
         => BuildPromptReply(context, content, new[] { missing });
 
+    private static ChatReply RejectFilterWithoutResults(ChatContext context, string resultType)
+    {
+        context.SortPreference = context.PreviousSortPreference;
+        context.NonstopOnly = context.PreviousNonstopOnly;
+        context.HotelStars = context.PreviousHotelStars;
+        context.AppliedChange = null;
+        return BuildPromptReply(context, $"Bu filtreyi uygulayabileceğim mevcut {resultType} sonucu yok. Önce {resultType} aramasını tamamlayalım.", $"Mevcut {resultType} sonucu");
+    }
+
     private static ChatReply BuildPromptReply(ChatContext context, string content, IReadOnlyList<string> missing)
     {
         context.Awaiting = string.Join(", ", missing);
-        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing, results = Array.Empty<object>() };
+        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing, results = Array.Empty<object>(), appliedChange = context.AppliedChange };
         return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
@@ -450,6 +578,9 @@ internal static partial class TravelChatService
         if (context.Infants is > 0) values["Bebek"] = context.Infants.Value.ToString();
         if (context.Rooms is not null) values["Oda"] = context.Rooms.Value.ToString();
         if (context.Nights is > 0) values["Konaklama"] = $"{context.Nights} gece";
+        if (context.NonstopOnly) values["Uçuş filtresi"] = "Aktarmasız";
+        if (context.HotelStars is not null) values["Otel filtresi"] = $"{context.HotelStars} yıldız";
+        if (context.SortPreference == "price") values["Sıralama"] = "En ucuz";
         return values;
     }
 
@@ -532,9 +663,20 @@ internal sealed class ChatContext
     public int? Nights { get; set; }
     public bool DateAmbiguous { get; set; }
     public string? LocationError { get; set; }
+    public string? SortPreference { get; set; }
+    public bool NonstopOnly { get; set; }
+    public int? HotelStars { get; set; }
+    public bool HasSearchBase { get; set; }
     public string? Awaiting { get; set; }
     public string LastClassification { get; set; } = "ambiguous";
     public string LastConfidence { get; set; } = "low";
+    [JsonIgnore] public string? AppliedChange { get; set; }
+    [JsonIgnore] public string? InvalidCommand { get; set; }
+    [JsonIgnore] public bool IsFilterChange { get; set; }
+    [JsonIgnore] public bool IsFilterRemoval { get; set; }
+    [JsonIgnore] public string? PreviousSortPreference { get; set; }
+    [JsonIgnore] public bool PreviousNonstopOnly { get; set; }
+    [JsonIgnore] public int? PreviousHotelStars { get; set; }
 }
 
 internal sealed record ChatReply(string Content, string MetadataJson, string ContextJson);

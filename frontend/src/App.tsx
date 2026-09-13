@@ -572,7 +572,7 @@ type ChatResult = {
   flightNumber?: string; airline?: string; from?: string; to?: string; departureAt?: string; arrivalAt?: string
   durationMinutes?: number; stops?: number; baggage?: string; totalPrice: number; currency: string; detailUrl?: string
 }
-type ChatMetadata = { intent?: 'hotel' | 'flight' | 'both'; classification?: 'hotel' | 'flight' | 'both' | 'ambiguous' | 'out-of-scope' | 'continuation'; confidence?: 'low' | 'medium' | 'high'; understood?: Record<string, string>; missing?: string[]; results?: ChatResult[]; searchUrl?: string }
+type ChatMetadata = { intent?: 'hotel' | 'flight' | 'both'; classification?: 'hotel' | 'flight' | 'both' | 'ambiguous' | 'out-of-scope' | 'continuation'; confidence?: 'low' | 'medium' | 'high'; understood?: Record<string, string>; missing?: string[]; results?: ChatResult[]; searchUrl?: string; appliedChange?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; metadata?: ChatMetadata; createdAt: string; pending?: boolean }
 
 function chatHeaders(json = false) {
@@ -596,6 +596,7 @@ function ChatMessageView({ message }: { message: ChatMessage }) {
   return <div className={`chat-message ${message.role}${message.pending ? ' pending' : ''}`}>
     <small>{message.role === 'user' ? 'Sen' : 'Seyahat yardımcısı'}</small><p>{message.content}</p>
     {routingLabel && <div className={`chat-routing-state ${message.metadata?.classification}`}><Icon name="info" size={13} />{routingLabel} · arama başlatılmadı</div>}
+    {message.role === 'assistant' && message.metadata?.appliedChange && <div className="chat-applied-change"><Icon name="filter" size={14} />{message.metadata.appliedChange}</div>}
     {message.role === 'assistant' && understood.length > 0 && <div className="chat-understood" aria-label="Anlaşılan bilgiler">{understood.map(([key, value]) => <span key={key}><b>{key}</b>{value}</span>)}</div>}
     {message.role === 'assistant' && message.metadata?.missing?.map(item => <div className="chat-missing" key={item}><Icon name="info" size={14} />Eksik bilgi: <strong>{item}</strong></div>)}
     <ChatResultCards metadata={message.metadata} />
