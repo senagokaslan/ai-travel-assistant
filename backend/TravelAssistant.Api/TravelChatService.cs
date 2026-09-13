@@ -20,7 +20,31 @@ internal static partial class TravelChatService
     {
         var context = await LoadContextAsync(connection, conversationId, cancellationToken);
         var normalized = Normalize(latestMessage);
-        UpdateIntent(context, normalized);
+        var routing = Classify(context, normalized);
+        context.LastClassification = routing.Classification;
+        context.LastConfidence = routing.Confidence;
+
+        ChatReply reply;
+        if (routing.Classification == "out-of-scope")
+        {
+            reply = BuildRoutingReply(context, "Bu konuda işlem yapamıyorum. Otel arayabilir, uçuş bulabilir veya ikisini birlikte planlamana yardımcı olabilirim.", "out-of-scope", "high", "Otel veya uçuş isteği");
+            return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+        }
+        if (routing.Classification == "ambiguous")
+        {
+            reply = BuildRoutingReply(context, "Otel mi, uçuş mu, yoksa ikisini birden mi istediğini kısaca belirtir misin? Henüz bir arama başlatmadım.", "ambiguous", "low", "Seyahat türü");
+            return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+        }
+        if (routing.Classification == "both")
+        {
+            ResetContext(context, "both");
+            context.LastClassification = "both"; context.LastConfidence = "high";
+            reply = BuildRoutingReply(context, "Hem uçuş hem otel istediğini anladım. Bilgileri karıştırmamak için önce hangisiyle başlayalım: uçuş mu, otel mi?", "both", "high", "Öncelik");
+            return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+        }
+        if (routing.Intent is not null && context.Intent != routing.Intent) ResetContext(context, routing.Intent);
+        else if (routing.Intent is not null) context.Intent = routing.Intent;
+
         UpdateDates(context, latestMessage, normalized);
         UpdateCounts(context, normalized);
 
@@ -33,13 +57,18 @@ internal static partial class TravelChatService
             await UpdateHotelLocationAsync(connection, context, normalized, cancellationToken);
         }
 
-        var reply = context.Intent switch
+        reply = context.Intent switch
         {
             "flight" => await BuildFlightReplyAsync(connection, context, cancellationToken),
             "hotel" => await BuildHotelReplyAsync(connection, context, cancellationToken),
             _ => BuildPromptReply(context, "Otel mi yoksa uçuş mu aramak istediğini yazar mısın? Örneğin “Antalya’da 14–16 Eylül için otel” diyebilirsin.", "Seyahat türü")
         };
 
+        return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+    }
+
+    private static async Task<ChatReply> SaveAndReturnAsync(NpgsqlConnection connection, Guid conversationId, ChatContext context, ChatReply reply, CancellationToken cancellationToken)
+    {
         var contextJson = JsonSerializer.Serialize(context, JsonOptions);
         await using var update = new NpgsqlCommand(
             "UPDATE chat_conversations SET context=@context::jsonb, updated_at=now() WHERE id=@id",
@@ -58,10 +87,30 @@ internal static partial class TravelChatService
         return string.IsNullOrWhiteSpace(json) ? new ChatContext() : JsonSerializer.Deserialize<ChatContext>(json, JsonOptions) ?? new ChatContext();
     }
 
-    private static void UpdateIntent(ChatContext context, string text)
+    private static RouteDecision Classify(ChatContext context, string text)
     {
-        if (Regex.IsMatch(text, @"\b(ucus|ucak|ucmak|havaalani|havalimani)\b")) context.Intent = "flight";
-        if (Regex.IsMatch(text, @"\b(otel|konaklama|konaklamak|oda)\b")) context.Intent = "hotel";
+        var flight = Regex.IsMatch(text, @"\b(ucus|ucak|ucmak|havaalani|havalimani|bilet)\b");
+        var hotel = Regex.IsMatch(text, @"\b(otel|konaklama|konaklamak|oda|gecelik)\b");
+        if (flight && hotel) return new RouteDecision("both", null, "high");
+        if (flight) return new RouteDecision("flight", "flight", "high");
+        if (hotel) return new RouteDecision("hotel", "hotel", "high");
+
+        if (Regex.IsMatch(text, @"\b(futbol|mac|borsa|hisse|kripto|yemek|tarif|kod|programlama|siyaset|film|muzik|hava durumu)\b"))
+            return new RouteDecision("out-of-scope", null, "high");
+        if (context.Intent is "flight" or "hotel" && context.Awaiting is not null)
+            return new RouteDecision("continuation", context.Intent, "medium");
+        if (Regex.IsMatch(text, @"\b(seyahat|tatil|gezi|gitmek|plan)\b") || text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 3)
+            return new RouteDecision("ambiguous", null, "low");
+        return new RouteDecision("out-of-scope", null, "medium");
+    }
+
+    private static void ResetContext(ChatContext context, string intent)
+    {
+        context.Intent = intent; context.TripType = "one-way";
+        context.Origin = null; context.Destination = null; context.PendingField = null; context.PendingCity = null;
+        context.DepartureDate = null; context.ReturnDate = null; context.HotelLocation = null;
+        context.CheckIn = null; context.CheckOut = null; context.Adults = null; context.Children = null;
+        context.Infants = null; context.Rooms = null; context.Awaiting = null;
     }
 
     private static void UpdateDates(ChatContext context, string original, string normalized)
@@ -192,7 +241,8 @@ internal static partial class TravelChatService
         else results.AddRange(outbound.Select(item => ToFlightResult(item, null, adults + children + infants)).OrderBy(item => item.TotalPrice).Take(3));
 
         var query = $"from={context.Origin}&to={context.Destination}&date={context.DepartureDate:yyyy-MM-dd}&tripType={context.TripType}&adults={adults}&children={children}&infants={infants}" + (context.ReturnDate is null ? "" : $"&returnDate={context.ReturnDate:yyyy-MM-dd}");
-        var metadata = new { intent = "flight", understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}" };
+        context.Awaiting = null;
+        var metadata = new { intent = "flight", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}" };
         var message = results.Count == 0 ? "Bu bilgilerle uygun uçuş bulamadım. Tarihi veya rotayı değiştirerek tekrar deneyebiliriz." : $"{context.Origin}–{context.Destination} rotasında en uygun {results.Count} seçeneği buldum.";
         return new ChatReply(message, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
@@ -209,7 +259,8 @@ internal static partial class TravelChatService
         var hotels = await HotelAvailabilityService.SearchAsync(connection, context.HotelLocation, context.CheckIn.Value, context.CheckOut.Value, rooms, adults + children, cancellationToken);
         var query = $"q={Uri.EscapeDataString(context.HotelLocation)}&checkIn={context.CheckIn:yyyy-MM-dd}&checkOut={context.CheckOut:yyyy-MM-dd}&rooms={rooms}&adults={adults}&children={children}";
         var results = hotels.Take(3).Select(hotel => new { kind = "hotel", hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.TotalPrice, currency = "TRY", detailUrl = $"/hotels/{hotel.Id}?{query}&option={Uri.EscapeDataString(hotel.Options[0].Key)}&quotedTotal={hotel.TotalPrice.ToString(CultureInfo.InvariantCulture)}" }).ToArray();
-        var metadata = new { intent = "hotel", understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}" };
+        context.Awaiting = null;
+        var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}" };
         var message = results.Length == 0 ? "Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz." : $"{context.HotelLocation} için en uygun {results.Length} oteli buldum.";
         return new ChatReply(message, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
@@ -219,14 +270,22 @@ internal static partial class TravelChatService
 
     private static ChatReply BuildPromptReply(ChatContext context, string content, string missing)
     {
-        var metadata = new { intent = context.Intent, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>() };
+        context.Awaiting = missing;
+        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>() };
+        return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
+    }
+
+    private static ChatReply BuildRoutingReply(ChatContext context, string content, string classification, string confidence, string missing)
+    {
+        context.Awaiting = missing;
+        var metadata = new { intent = context.Intent, classification, confidence, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>() };
         return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
     private static Dictionary<string, string> Understood(ChatContext context)
     {
         var values = new Dictionary<string, string>();
-        if (context.Intent is not null) values["Arama"] = context.Intent == "flight" ? "Uçuş" : "Otel";
+        if (context.Intent is not null) values["Arama"] = context.Intent switch { "flight" => "Uçuş", "hotel" => "Otel", "both" => "Uçuş + otel", _ => context.Intent };
         if (context.Origin is not null) values["Kalkış"] = context.Origin;
         if (context.Destination is not null) values["Varış"] = context.Destination;
         if (context.HotelLocation is not null) values["Konum"] = context.HotelLocation;
@@ -268,6 +327,7 @@ internal static partial class TravelChatService
 
     private sealed record AirportRow(string Code, string Name, string City);
     private sealed record FlightChatResult(string Kind, string FlightNumber, string Airline, string From, string To, DateTime DepartureAt, DateTime ArrivalAt, int DurationMinutes, int Stops, string Baggage, decimal TotalPrice, string Currency);
+    private sealed record RouteDecision(string Classification, string? Intent, string Confidence);
 }
 
 internal sealed class ChatContext
@@ -287,6 +347,9 @@ internal sealed class ChatContext
     public int? Children { get; set; }
     public int? Infants { get; set; }
     public int? Rooms { get; set; }
+    public string? Awaiting { get; set; }
+    public string LastClassification { get; set; } = "ambiguous";
+    public string LastConfidence { get; set; } = "low";
 }
 
 internal sealed record ChatReply(string Content, string MetadataJson, string ContextJson);
