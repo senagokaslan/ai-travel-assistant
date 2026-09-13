@@ -94,9 +94,9 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .search-card { margin-top: 34px; padding: clamp(22px, 3vw, 32px); }
 .search-card-heading { padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .search-card-heading > span { color: var(--soft-muted); font-size: 11px; }
-.search-card-heading > span i, .form-field > span:first-child i, .child-ages legend i { margin-left: 3px; color: var(--accent); font-style: normal; }
+.search-card-heading > span i, .form-field > span:first-child i, .form-field > label i, .child-ages legend i { margin-left: 3px; color: var(--accent); font-style: normal; }
 .form-field { position: relative; display: grid; align-content: start; gap: 7px; color: var(--ink); font-size: 12px; font-weight: 700; }
-.form-field > span:first-child { min-height: 16px; }
+.form-field > span:first-child, .form-field > label { min-height: 16px; }
 .form-field input, .form-field select, .chat-composer input { width: 100%; min-height: 49px; padding: 0 13px; color: var(--ink); background: #fff; border: 1px solid var(--line-strong); border-radius: 11px; outline: 0; font-size: 14px; transition: border-color 150ms ease, box-shadow 150ms ease, background-color 150ms ease; }
 .form-field input:hover, .form-field select:hover { border-color: #a9bbb2; }
 .form-field input:focus, .form-field select:focus { border-color: var(--brand); box-shadow: 0 0 0 3px rgba(12, 102, 84, .11); }
@@ -149,6 +149,30 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .result-toolbar strong { color: var(--ink); font-family: Manrope, sans-serif; font-size: 17px; }
 .result-toolbar span, .result-toolbar small { color: var(--muted); font-size: 11px; }
 .flight-list { display: grid; gap: 12px; }
+.journey-option-card { overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 8px 24px rgba(30, 45, 75, .06); }
+.journey-option-heading { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #fff; background: linear-gradient(120deg, var(--brand-dark), var(--brand)); }
+.journey-option-heading > div { display: grid; gap: 3px; }
+.journey-option-heading > div:last-child { justify-items: end; text-align: right; }
+.journey-option-heading span, .journey-option-heading small { font-size: 9px; opacity: .82; }
+.journey-option-heading strong { font-family: Manrope, sans-serif; font-size: 17px; }
+.itinerary-block { padding: 18px; }
+.itinerary-block + .itinerary-block { border-top: 1px solid var(--line); }
+.itinerary-block > header { display: grid; grid-template-columns: minmax(150px, .75fr) minmax(400px, 1.5fr); align-items: center; gap: 22px; }
+.itinerary-block > header > div:first-child { display: grid; gap: 3px; }
+.itinerary-block > header > div:first-child > span { width: fit-content; padding: 3px 7px; color: var(--brand); background: var(--brand-soft); border-radius: 999px; font-size: 9px; font-weight: 800; }
+.itinerary-block > header > div:first-child small { color: var(--muted); font-size: 10px; }
+.itinerary-route-summary { display: grid; grid-template-columns: auto auto 1fr auto auto auto; align-items: center; gap: 8px; }
+.itinerary-route-summary > i { height: 1px; background: var(--line-strong); }
+.itinerary-route-summary > span { color: var(--muted); font-size: 10px; font-weight: 800; }
+.itinerary-route-summary > small { color: var(--muted); font-size: 9px; white-space: nowrap; }
+.segment-list { margin-top: 15px; display: grid; border: 1px solid var(--line); border-radius: 9px; }
+.segment-group + .segment-group .segment-row { border-top: 1px solid var(--line); }
+.segment-row { min-height: 40px; padding: 8px 11px; display: grid; grid-template-columns: 34px 1fr 20px 34px 1fr auto; align-items: center; gap: 8px; font-size: 10px; }
+.segment-row > i { color: var(--brand); font-style: normal; text-align: center; }
+.segment-row > span, .segment-row > small { color: var(--muted); }
+.connection-row { padding: 7px 11px; color: #725a14; background: #fff9e8; border-top: 1px dashed #ead9a4; font-size: 9px; font-weight: 700; text-align: center; }
+.itinerary-block > footer { margin-top: 12px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 9px; }
+.itinerary-block > footer strong { margin-left: auto; color: var(--success); }
 .flight-card { padding: 20px; display: grid; grid-template-columns: 1.15fr 1.5fr 1.15fr .8fr; align-items: center; gap: 22px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease; animation: result-in 320ms ease-out both; }
 .flight-card:hover, .hotel-result-card:hover { border-color: #b9cbc3; box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .airline-summary { display: flex; align-items: center; gap: 11px; }
@@ -561,12 +585,25 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .workbench-heading .app-icon { color: var(--brand); }
 .workbench-heading h2 { margin: 0; font-size: 16px; }
 .workbench-heading small { color: var(--muted); font-size: 10px; }
-.flight-form-grid { display: grid; grid-template-columns: minmax(165px, 1fr) 38px minmax(165px, 1fr) 165px 120px auto; align-items: end; gap: 10px; }
+.trip-type-toggle { width: fit-content; padding: 3px; display: flex; gap: 3px; background: #eef1f7; border-radius: 10px; }
+.trip-type-toggle button { min-height: 34px; padding: 0 15px; color: var(--muted); background: transparent; border: 0; border-radius: 8px; font-size: 11px; font-weight: 800; cursor: pointer; }
+.trip-type-toggle button.selected { color: #fff; background: var(--brand); box-shadow: 0 3px 9px rgba(49, 87, 183, .2); }
+.flight-form-grid { margin-top: 16px; display: grid; grid-template-columns: minmax(200px, 1fr) 38px minmax(200px, 1fr) 165px 165px; align-items: start; gap: 10px; }
 .flight-form-grid .form-field { min-width: 0; }
-.flight-form-grid .form-field > span { font-size: 10px; }
+.flight-form-grid .form-field > span, .flight-form-grid .form-field > label { font-size: 10px; }
 .flight-form-grid input, .flight-form-grid select { min-height: 44px; }
+.airport-selection { margin-top: 5px; color: var(--success); font-size: 9px; }
+.airport-hint { margin-top: 5px; color: var(--muted); font-size: 9px; }
+.airport-empty { margin-top: 5px; color: var(--warning); font-size: 9px; }
 .swap-route { width: 36px; height: 36px; margin-bottom: 4px; color: var(--brand); background: var(--brand-soft); border-color: #d3dcf4; border-radius: 50%; }
 .swap-route:hover { color: #fff; background: var(--brand); transform: rotate(180deg); }
+.flight-passenger-row { margin-top: 18px; padding-top: 16px; display: grid; grid-template-columns: minmax(190px, 1fr) 130px 130px 130px auto; align-items: start; gap: 10px; border-top: 1px solid var(--line); }
+.passenger-heading { padding-top: 4px; display: grid; gap: 3px; }
+.passenger-heading strong { color: var(--ink); font-size: 12px; }
+.passenger-heading small { color: var(--muted); font-size: 9px; }
+.flight-passenger-row .form-field > span { font-size: 10px; }
+.flight-passenger-row select { min-height: 44px; }
+.passenger-total-error { display: block; margin-top: 8px; }
 .flight-submit { min-height: 44px; margin-bottom: 0; padding-inline: 18px; gap: 7px; white-space: nowrap; }
 .flight-results { min-height: 285px; margin-top: 22px; }
 .results-placeholder { min-height: 210px; padding: 32px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 16px; color: var(--muted); background: rgba(255, 255, 255, .55); border: 1px dashed #cbd2df; border-radius: 13px; }
@@ -712,7 +749,9 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .home-start-heading { gap: 38px; }
   .flight-form-grid { grid-template-columns: minmax(180px, 1fr) 38px minmax(180px, 1fr) 160px; }
   .flight-form-grid > .form-field:nth-of-type(4) { grid-column: 1 / 2; }
-  .flight-submit { grid-column: 4; }
+  .flight-passenger-row { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .passenger-heading { grid-column: 1 / -1; }
+  .flight-submit { grid-column: 3; }
   .hotel-results-layout { grid-template-columns: 220px minmax(0, 1fr); }
   .hotel-result-card { grid-template-columns: 100px minmax(0, 1fr); }
   .hotel-price { grid-column: 2; padding-top: 0; align-items: flex-start; border-top: 0; border-left: 0; text-align: left; }
@@ -737,7 +776,9 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .destination-list { grid-template-columns: 1fr 1fr; }
   .flight-form-grid { grid-template-columns: 1fr 42px 1fr; }
   .flight-form-grid > .form-field:nth-of-type(3), .flight-form-grid > .form-field:nth-of-type(4) { grid-column: auto; }
-  .flight-submit { grid-column: 3; }
+  .flight-passenger-row { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+  .flight-passenger-row .flight-submit { grid-column: 2; }
+  .itinerary-block > header { grid-template-columns: 1fr; gap: 13px; }
   .results-search-bar { grid-template-columns: 1fr 1fr; }
   .results-search-bar > div + div { border-left: 0; }
   .results-search-bar > div:nth-child(even) { border-left: 1px solid var(--line); }
@@ -766,6 +807,17 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .compact-page-heading h1 { font-size: 32px; }
   .search-workbench { padding: 16px; }
   .flight-form-grid { grid-template-columns: 1fr; }
+  .flight-passenger-row { grid-template-columns: 1fr; }
+  .passenger-heading, .flight-passenger-row .flight-submit { grid-column: auto; }
+  .journey-option-heading { align-items: flex-start; }
+  .journey-option-heading strong { font-size: 14px; }
+  .itinerary-block { padding: 14px; }
+  .itinerary-route-summary { grid-template-columns: auto auto 1fr auto auto; }
+  .itinerary-route-summary > small { grid-column: 1 / -1; grid-row: 2; text-align: center; }
+  .segment-row { grid-template-columns: 32px 1fr 18px 32px 1fr; }
+  .segment-row > small { grid-column: 1 / -1; text-align: right; }
+  .itinerary-block > footer { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .itinerary-block > footer strong { margin-left: 0; }
   .flight-form-grid > .form-field:nth-of-type(3), .flight-form-grid > .form-field:nth-of-type(4), .flight-submit { grid-column: auto; }
   .swap-route { margin: -2px auto; transform: rotate(90deg); }
   .swap-route:hover { transform: rotate(270deg); }

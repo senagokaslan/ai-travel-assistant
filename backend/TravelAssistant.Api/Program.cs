@@ -162,9 +162,10 @@ app.MapGet("/api", () => Results.Ok(new
 app.MapGet("/api/travel/airports", async (string? q, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
     var term = (q ?? "").Trim();
+    if (term.Length < 2) return Results.Ok(Array.Empty<object>());
     await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
-    await using var command = new NpgsqlCommand("SELECT a.iata_code, a.name, c.name, co.name FROM airports a JOIN travel_cities c ON c.id = a.city_id JOIN travel_countries co ON co.id = c.country_id WHERE a.is_active AND (@q = '' OR a.iata_code ILIKE @like OR a.name ILIKE @like OR c.name ILIKE @like) ORDER BY c.name, a.name", connection);
-    command.Parameters.AddWithValue("q", term); command.Parameters.AddWithValue("like", $"%{term}%");
+    await using var command = new NpgsqlCommand("SELECT a.iata_code, a.name, c.name, co.name FROM airports a JOIN travel_cities c ON c.id = a.city_id JOIN travel_countries co ON co.id = c.country_id WHERE a.is_active AND (BTRIM(a.iata_code) ILIKE @like OR a.name ILIKE @like OR c.name ILIKE @like) ORDER BY CASE WHEN BTRIM(a.iata_code) ILIKE @prefix THEN 0 WHEN c.name ILIKE @prefix THEN 1 ELSE 2 END, c.name, a.name LIMIT 10", connection);
+    command.Parameters.AddWithValue("like", $"%{term}%"); command.Parameters.AddWithValue("prefix", $"{term}%");
     await using var reader = await command.ExecuteReaderAsync(cancellationToken); var results = new List<object>(); while (await reader.ReadAsync(cancellationToken)) results.Add(new { code = reader.GetString(0).Trim(), name = reader.GetString(1), city = reader.GetString(2), country = reader.GetString(3) });
     return Results.Ok(results);
 });
@@ -221,14 +222,53 @@ app.MapGet("/api/hotels/{id:guid}", async (Guid id, IConfiguration configuration
     await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken); await using var command = new NpgsqlCommand("SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, r.id, r.name, r.capacity, r.features FROM hotels h JOIN travel_cities c ON c.id = h.city_id LEFT JOIN hotel_rooms r ON r.hotel_id = h.id AND r.is_active WHERE h.id = @id AND h.is_active ORDER BY r.capacity", connection); command.Parameters.AddWithValue("id", id); await using var reader = await command.ExecuteReaderAsync(cancellationToken); if (!await reader.ReadAsync(cancellationToken)) return Results.NotFound(new { message = "Otel bulunamadı veya satışa kapalı." }); var rooms = new List<object>(); var hotel = new { id = reader.GetGuid(0), name = reader.GetString(1), city = reader.GetString(2), district = reader.GetString(3), stars = reader.GetInt16(4), rating = reader.GetDecimal(5), description = reader.GetString(6) }; do { if (!reader.IsDBNull(7)) rooms.Add(new { id = reader.GetGuid(7), name = reader.GetString(8), capacity = reader.GetInt16(9), features = reader.GetFieldValue<string[]>(10) }); } while (await reader.ReadAsync(cancellationToken)); return Results.Ok(new { hotel, rooms });
 });
 
-app.MapGet("/api/flights", async (string? from, string? to, DateOnly? date, int? passengers, IConfiguration configuration, CancellationToken cancellationToken) =>
+app.MapGet("/api/flights", async (string? from, string? to, DateOnly? date, DateOnly? returnDate, string? tripType, int? adults, int? children, int? infants, int? passengers, IConfiguration configuration, CancellationToken cancellationToken) =>
 {
-    if (date is not null && date < DateOnly.FromDateTime(DateTime.UtcNow)) return Results.BadRequest(new { message = "Geçmiş tarih için uçuş aranamaz." });
-    if (passengers is not null && (passengers < 1 || passengers > 20)) return Results.BadRequest(new { message = "Yolcu sayısı 1-20 arasında olmalı." });
     var origin = (from ?? "").Trim().ToUpperInvariant(); var destination = (to ?? "").Trim().ToUpperInvariant();
+    var journeyType = string.IsNullOrWhiteSpace(tripType) ? "one-way" : tripType.Trim().ToLowerInvariant();
+    var adultCount = adults ?? 1; var childCount = children ?? 0; var infantCount = infants ?? 0;
+    var seatedPassengers = passengers ?? adultCount + childCount;
+    if (origin.Length != 3 || destination.Length != 3) return Results.BadRequest(new { message = "Kalkış ve varış havaalanları zorunludur." });
+    if (origin == destination) return Results.BadRequest(new { message = "Kalkış ve varış havaalanları aynı olamaz." });
+    if (date is null) return Results.BadRequest(new { message = "Gidiş tarihi zorunludur." });
+    if (date < DateOnly.FromDateTime(DateTime.Now)) return Results.BadRequest(new { message = "Geçmiş tarih için uçuş aranamaz." });
+    if (journeyType is not ("one-way" or "round-trip")) return Results.BadRequest(new { message = "Yolculuk türü geçersizdir." });
+    if (journeyType == "round-trip" && returnDate is null) return Results.BadRequest(new { message = "Gidiş dönüş aramasında dönüş tarihi zorunludur." });
+    if (journeyType == "round-trip" && returnDate < date) return Results.BadRequest(new { message = "Dönüş tarihi gidiş tarihinden önce olamaz." });
+    if (adultCount is < 1 or > 9 || childCount is < 0 or > 8 || infantCount is < 0 or > 9 || infantCount > adultCount || adultCount + childCount + infantCount > 20) return Results.BadRequest(new { message = "Yetişkin, çocuk ve bebek sayıları geçersizdir." });
+    if (seatedPassengers != adultCount + childCount) return Results.BadRequest(new { message = "Koltuk gerektiren yolcu sayısı yetişkin ve çocuk toplamıyla eşleşmelidir." });
     await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
-    await using var command = new NpgsqlCommand("SELECT f.flight_number, al.name, al.iata_code, MIN(l.departure_at), MAX(l.arrival_at), COUNT(*), ff.id, ff.name, ff.price, ff.currency, ff.baggage, ff.change_policy, ff.seats_available FROM flights f JOIN airlines al ON al.id=f.airline_id JOIN flight_legs l ON l.flight_id=f.id JOIN airports dep ON dep.id=l.departure_airport_id JOIN airports arr ON arr.id=l.arrival_airport_id JOIN flight_fares ff ON ff.flight_id=f.id AND ff.is_active AND ff.seats_available >= COALESCE(@passengers,1) WHERE f.status='scheduled' AND (@from='' OR dep.iata_code=@from) AND (@to='' OR arr.iata_code=@to) AND (@date IS NULL OR l.departure_at::date=@date) GROUP BY f.flight_number, al.name, al.iata_code, ff.id ORDER BY MIN(l.departure_at), ff.price", connection); command.Parameters.AddWithValue("from", origin); command.Parameters.AddWithValue("to", destination); command.Parameters.AddWithValue("date", (object?)date?.ToDateTime(TimeOnly.MinValue) ?? DBNull.Value); command.Parameters.AddWithValue("passengers", (object?)passengers ?? DBNull.Value);
-    await using var reader = await command.ExecuteReaderAsync(cancellationToken); var results = new List<object>(); while (await reader.ReadAsync(cancellationToken)) results.Add(new { flightNumber = reader.GetString(0), airline = reader.GetString(1), airlineCode = reader.GetString(2), departureAt = reader.GetDateTime(3), arrivalAt = reader.GetDateTime(4), stops = reader.GetInt64(5) - 1, fare = new { id = reader.GetGuid(6), name = reader.GetString(7), price = reader.GetDecimal(8), currency = reader.GetString(9).Trim(), baggage = reader.GetString(10), changePolicy = reader.GetString(11), seatsAvailable = reader.GetInt32(12) } }); return Results.Ok(results);
+    await using (var airportCommand = new NpgsqlCommand("SELECT COUNT(*) FROM airports WHERE is_active AND BTRIM(iata_code) = ANY(@codes)", connection))
+    {
+        airportCommand.Parameters.AddWithValue("codes", new[] { origin, destination });
+        if (Convert.ToInt64(await airportCommand.ExecuteScalarAsync(cancellationToken)) != 2) return Results.BadRequest(new { message = "Seçilen havaalanlarından biri katalogda bulunmuyor veya aktif değil." });
+    }
+    var outbound = await FlightSearchService.SearchAsync(connection, origin, destination, date.Value, seatedPassengers, cancellationToken);
+    if (journeyType == "one-way")
+    {
+        return Results.Ok(outbound.Select(flight => new
+        {
+            id = $"out-{flight.Fare.Id}", tripType = journeyType, totalPrice = flight.Fare.Price,
+            currency = flight.Fare.Currency, seatsAvailable = flight.SeatsAvailable, outbound = flight,
+            inbound = (FlightItinerary?)null
+        }));
+    }
+
+    var inbound = await FlightSearchService.SearchAsync(connection, destination, origin, returnDate!.Value, seatedPassengers, cancellationToken);
+    var journeys = outbound
+        .SelectMany(outFlight => inbound
+            .Where(inFlight => inFlight.Fare.Currency == outFlight.Fare.Currency)
+            .Select(inFlight => new
+            {
+                id = $"rt-{outFlight.Fare.Id}-{inFlight.Fare.Id}", tripType = journeyType,
+                totalPrice = outFlight.Fare.Price + inFlight.Fare.Price, currency = outFlight.Fare.Currency,
+                seatsAvailable = Math.Min(outFlight.SeatsAvailable, inFlight.SeatsAvailable),
+                outbound = outFlight, inbound = (FlightItinerary?)inFlight
+            }))
+        .OrderBy(journey => journey.totalPrice)
+        .ThenBy(journey => journey.outbound.DepartureAt)
+        .ToArray();
+    return Results.Ok(journeys);
 });
 
 app.MapPost("/api/flights/fares/{fareId:guid}/reserve", async (Guid fareId, ReserveRequest request, HttpRequest httpRequest, IConfiguration configuration, CancellationToken cancellationToken) =>

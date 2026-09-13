@@ -22,22 +22,47 @@ type HealthState = 'loading' | 'healthy' | 'unhealthy'
 type HealthResponse = { status: 'healthy' | 'unhealthy' }
 type Airport = { code: string; name: string; city: string; country: string }
 type TravelCity = { id: string; name: string }
-type FlightResult = {
+type FlightFare = {
+  id: string
+  name: string
+  price: number
+  currency: string
+  baggage: string
+  changePolicy: string
+}
+type FlightSegment = {
+  id: string
+  order: number
+  from: string
+  fromAirport: string
+  to: string
+  toAirport: string
+  departureAt: string
+  arrivalAt: string
+  durationMinutes: number
+  seatsAvailable: number
+}
+type FlightItinerary = {
+  id: string
   flightNumber: string
   airline: string
   airlineCode: string
   departureAt: string
   arrivalAt: string
+  durationMinutes: number
   stops: number
-  fare: {
-    id: string
-    name: string
-    price: number
-    currency: string
-    baggage: string
-    changePolicy: string
-    seatsAvailable: number
-  }
+  seatsAvailable: number
+  fare: FlightFare
+  segments: FlightSegment[]
+}
+type FlightJourney = {
+  id: string
+  tripType: 'one-way' | 'round-trip'
+  totalPrice: number
+  currency: string
+  seatsAvailable: number
+  outbound: FlightItinerary
+  inbound: FlightItinerary | null
 }
 
 function useHealth() {
@@ -205,35 +230,50 @@ function localToday() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 }
 
-function airportCode(value: string) {
-  const match = value.trim().toLocaleUpperCase('tr-TR').match(/(?:\(|^)([A-Z]{3})\)?$/)
-  return match?.[1] ?? ''
-}
-
-function AirportField({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string }) {
+function AirportField({ id, label, value, selectedCode, onChange, onSelect, error }: { id: string; label: string; value: string; selectedCode: string; onChange: (value: string) => void; onSelect: (airport: Airport) => void; error?: string }) {
   const [suggestions, setSuggestions] = useState<Airport[]>([])
+  const [searchedTerm, setSearchedTerm] = useState('')
+  const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
 
   useEffect(() => {
     const term = value.trim()
-    if (term.length < 2 || airportCode(term)) {
+    if (term.length < 2 || selectedCode) {
       return
     }
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
+      setLookupState('loading')
       fetch(`/api/travel/airports?q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then(async response => response.ok ? setSuggestions(await response.json() as Airport[]) : setSuggestions([]))
-        .catch(() => undefined)
+        .then(async response => {
+          if (!response.ok) throw new Error('airport-lookup')
+          setSuggestions(await response.json() as Airport[])
+          setSearchedTerm(term)
+          setLookupState('ready')
+        })
+        .catch(error => {
+          if (error.name === 'AbortError') return
+          setSuggestions([])
+          setSearchedTerm(term)
+          setLookupState('error')
+        })
     }, 180)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [value])
+  }, [selectedCode, value])
+
+  const listId = `${id}-suggestions`
+  const helperId = error ? `${id}-error` : selectedCode ? `${id}-selection` : undefined
 
   return (
-    <label className="form-field airport-field">
-      <span>{label}<i>*</i></span>
-      <input value={value} onChange={event => { const next = event.target.value; onChange(next); if (next.trim().length < 2 || airportCode(next)) setSuggestions([]) }} placeholder="Şehir veya havaalanı kodu" autoComplete="off" aria-invalid={Boolean(error)} />
-      {suggestions.length > 0 && <span className="suggestion-popover">{suggestions.map(item => <button type="button" key={item.code} onClick={() => { onChange(`${item.city} (${item.code})`); setSuggestions([]) }}><b>{item.code}</b><span>{item.city}<small>{item.name}</small></span></button>)}</span>}
-      {error && <small className="field-error">{error}</small>}
-    </label>
+    <div className="form-field airport-field">
+      <label htmlFor={id}>{label}<i>*</i></label>
+      <input id={id} value={value} onChange={event => { onChange(event.target.value); setSuggestions([]); setSearchedTerm(''); setLookupState('idle') }} onKeyDown={event => { if (event.key === 'Escape') setSuggestions([]) }} placeholder="Şehir, havaalanı veya IATA kodu" autoComplete="off" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded={!selectedCode && suggestions.length > 0} aria-invalid={Boolean(error)} aria-describedby={helperId} />
+      {!selectedCode && suggestions.length > 0 && <span id={listId} className="suggestion-popover" role="listbox">{suggestions.map(item => <button type="button" role="option" aria-selected="false" key={item.code} onClick={() => { onSelect(item); setSuggestions([]); setLookupState('idle') }}><b>{item.code}</b><span>{item.city}<small>{item.name} · {item.country}</small></span></button>)}</span>}
+      {lookupState === 'loading' && <small className="airport-hint">Havaalanları aranıyor…</small>}
+      {!selectedCode && lookupState === 'ready' && searchedTerm === value.trim() && suggestions.length === 0 && <small className="airport-empty">Bu adla eşleşen aktif havaalanı bulunamadı.</small>}
+      {!selectedCode && lookupState === 'error' && searchedTerm === value.trim() && <small className="field-error">Havaalanı listesi alınamadı. Tekrar deneyin.</small>}
+      {selectedCode && <small id={`${id}-selection`} className="airport-selection">Seçilen havaalanı: <b>{selectedCode}</b></small>}
+      {error && <small id={`${id}-error`} className="field-error">{error}</small>}
+    </div>
   )
 }
 
@@ -246,11 +286,46 @@ function formatDuration(start: string, end: string) {
   return `${Math.floor(minutes / 60)} sa ${minutes % 60} dk`
 }
 
+function formatMinutes(minutes: number) {
+  return `${Math.floor(minutes / 60)} sa ${minutes % 60} dk`
+}
+
+function formatFlightDate(value: string) {
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short' }).format(new Date(value))
+}
+
+function FlightItineraryView({ label, itinerary }: { label: string; itinerary: FlightItinerary }) {
+  return (
+    <section className="itinerary-block">
+      <header>
+        <div><span>{label}</span><strong>{itinerary.airline}</strong><small>{itinerary.flightNumber} · {itinerary.fare.name}</small></div>
+        <div className="itinerary-route-summary"><strong>{formatClock(itinerary.departureAt)}</strong><span>{itinerary.segments[0].from}</span><i /><small>{formatMinutes(itinerary.durationMinutes)} · {itinerary.stops === 0 ? 'Direkt' : `${itinerary.stops} aktarma`}</small><strong>{formatClock(itinerary.arrivalAt)}</strong><span>{itinerary.segments.at(-1)?.to}</span></div>
+      </header>
+      <div className="segment-list">
+        {itinerary.segments.map((segment, index) => {
+          const nextSegment = itinerary.segments[index + 1]
+          return <div className="segment-group" key={segment.id}>
+            <div className="segment-row"><b>{segment.from}</b><span>{formatFlightDate(segment.departureAt)} · {formatClock(segment.departureAt)}</span><i>→</i><b>{segment.to}</b><span>{formatFlightDate(segment.arrivalAt)} · {formatClock(segment.arrivalAt)}</span><small>{formatMinutes(segment.durationMinutes)}</small></div>
+            {nextSegment && <div className="connection-row">{segment.to} havaalanında {formatDuration(segment.arrivalAt, nextSegment.departureAt)} aktarma</div>}
+          </div>
+        })}
+      </div>
+      <footer><span>{itinerary.fare.baggage}</span><span>{itinerary.fare.changePolicy}</span><strong>{itinerary.seatsAvailable} koltuk kaldı</strong></footer>
+    </section>
+  )
+}
+
 function FlightSearchPage() {
+  const [tripType, setTripType] = useState<'one-way' | 'round-trip'>('one-way')
   const [origin, setOrigin] = useState('')
+  const [originAirport, setOriginAirport] = useState<Airport | null>(null)
   const [destination, setDestination] = useState('')
-  const [date, setDate] = useState('')
-  const [passengers, setPassengers] = useState('1')
+  const [destinationAirport, setDestinationAirport] = useState<Airport | null>(null)
+  const [departureDate, setDepartureDate] = useState('')
+  const [returnDate, setReturnDate] = useState('')
+  const [adults, setAdults] = useState('1')
+  const [children, setChildren] = useState('0')
+  const [infants, setInfants] = useState('0')
   const [errors, setErrors] = useState<Record<string, string>>({})
 
   const clearError = (key: string) => {
@@ -261,33 +336,56 @@ function FlightSearchPage() {
     })
   }
   const [state, setState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
-  const [results, setResults] = useState<FlightResult[]>([])
+  const [results, setResults] = useState<FlightJourney[]>([])
+  const [searchError, setSearchError] = useState('')
+
+  const invalidateResults = () => {
+    setState('idle')
+    setResults([])
+    setSearchError('')
+  }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const from = airportCode(origin)
-    const to = airportCode(destination)
+    const from = originAirport?.code ?? ''
+    const to = destinationAirport?.code ?? ''
     const nextErrors: Record<string, string> = {}
     if (!from) nextErrors.origin = 'Listeden bir kalkış havaalanı seçin.'
     if (!to) nextErrors.destination = 'Listeden bir varış havaalanı seçin.'
     if (from && to && from === to) nextErrors.destination = 'Varış havaalanı kalkıştan farklı olmalı.'
-    if (!date) nextErrors.date = 'Gidiş tarihini seçin.'
-    else if (date < localToday()) nextErrors.date = 'Geçmiş tarih için arama yapılamaz.'
-    const passengerCount = Number(passengers)
-    if (!Number.isInteger(passengerCount) || passengerCount < 1 || passengerCount > 20) nextErrors.passengers = 'Yolcu sayısı 1–20 arasında olmalı.'
+    if (!departureDate) nextErrors.departureDate = 'Gidiş tarihini seçin.'
+    else if (departureDate < localToday()) nextErrors.departureDate = 'Geçmiş tarih için arama yapılamaz.'
+    if (tripType === 'round-trip' && !returnDate) nextErrors.returnDate = 'Dönüş tarihini seçin.'
+    else if (tripType === 'round-trip' && departureDate && returnDate < departureDate) nextErrors.returnDate = 'Dönüş tarihi gidiş tarihinden önce olamaz.'
+    const adultCount = Number(adults)
+    const childCount = Number(children)
+    const infantCount = Number(infants)
+    if (!Number.isInteger(adultCount) || adultCount < 1 || adultCount > 9) nextErrors.adults = 'Yetişkin sayısı 1–9 arasında olmalı.'
+    if (!Number.isInteger(childCount) || childCount < 0 || childCount > 8) nextErrors.children = 'Çocuk sayısı 0–8 arasında olmalı.'
+    if (!Number.isInteger(infantCount) || infantCount < 0 || infantCount > 9) nextErrors.infants = 'Bebek sayısı 0–9 arasında olmalı.'
+    else if (infantCount > adultCount) nextErrors.infants = 'Bebek sayısı yetişkin sayısını aşamaz.'
+    if (adultCount + childCount + infantCount > 20) nextErrors.passengers = 'Toplam yolcu sayısı 20’yi aşamaz.'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
 
     setState('loading')
     setResults([])
+    setSearchError('')
     try {
-      const params = new URLSearchParams({ from, to, date, passengers })
+      const params = new URLSearchParams({ from, to, date: departureDate, tripType, adults, children, infants, passengers: String(adultCount + childCount) })
+      if (tripType === 'round-trip') params.set('returnDate', returnDate)
       const response = await fetch(`/api/flights?${params}`)
-      if (!response.ok) throw new Error('flight-search')
-      const data = await response.json() as FlightResult[]
-      setResults([...data].sort((a, b) => a.fare.price - b.fare.price))
+      const payload: unknown = await response.json().catch(() => null)
+      if (!response.ok) {
+        const apiMessage = payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string' ? payload.message : ''
+        throw new Error(apiMessage || 'Uçuş araması tamamlanamadı.')
+      }
+      if (!Array.isArray(payload)) throw new Error('Uçuş araması tamamlanamadı.')
+      const data = payload as FlightJourney[]
+      setResults([...data].sort((a, b) => a.totalPrice - b.totalPrice))
       setState('ready')
-    } catch {
+    } catch (error) {
+      setSearchError(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'Arama servisine ulaşılamadı. API ve veritabanı bağlantısını kontrol edip yeniden deneyin.')
       setState('error')
     }
   }
@@ -296,24 +394,32 @@ function FlightSearchPage() {
     <main className="page-frame flight-page" data-testid="flight-page">
       <header className="compact-page-heading"><div><span className="section-label">UÇUŞLAR</span><h1>Uçuş ara</h1></div><p>Yerel katalogdaki örnek seferleri rota, saat ve fiyat bilgileriyle karşılaştır.</p></header>
       <form className="flight-search-form search-workbench" onSubmit={submit} noValidate aria-busy={state === 'loading'}>
-        <div className="workbench-heading"><div><Icon name="plane" size={19} /><h2>Tek yön</h2></div><small>Örnek sefer verileri</small></div>
+        <div className="workbench-heading"><div><Icon name="plane" size={19} /><h2>Uçuş bilgileri</h2></div><small><i>*</i> Zorunlu alan</small></div>
+        <div className="trip-type-toggle" role="radiogroup" aria-label="Yolculuk türü"><button type="button" role="radio" aria-checked={tripType === 'one-way'} className={tripType === 'one-way' ? 'selected' : ''} onClick={() => { setTripType('one-way'); setReturnDate(''); clearError('returnDate'); invalidateResults() }}>Tek yön</button><button type="button" role="radio" aria-checked={tripType === 'round-trip'} className={tripType === 'round-trip' ? 'selected' : ''} onClick={() => { setTripType('round-trip'); invalidateResults() }}>Gidiş dönüş</button></div>
         {Object.keys(errors).length > 0 && <FeedbackState tone="error" title="Arama bilgilerini kontrol edin" message="İşaretli alanları düzelttikten sonra tekrar deneyin." />}
         <div className="flight-form-grid">
-          <AirportField label="Nereden" value={origin} onChange={value => { setOrigin(value); clearError('origin') }} error={errors.origin} />
-          <button className="swap-route" type="button" aria-label="Kalkış ve varışı değiştir" onClick={() => { setOrigin(destination); setDestination(origin) }}><Icon name="swap" size={18} /></button>
-          <AirportField label="Nereye" value={destination} onChange={value => { setDestination(value); clearError('destination') }} error={errors.destination} />
-          <label className="form-field"><span>Gidiş tarihi<i>*</i></span><input type="date" min={localToday()} value={date} onChange={event => { setDate(event.target.value); clearError('date') }} aria-invalid={Boolean(errors.date)} />{errors.date && <small className="field-error">{errors.date}</small>}</label>
-          <label className="form-field"><span>Yolcu<i>*</i></span><select value={passengers} onChange={event => { setPassengers(event.target.value); clearError('passengers') }}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yolcu</option>)}</select>{errors.passengers && <small className="field-error">{errors.passengers}</small>}</label>
+          <AirportField id="flight-origin" label="Nereden" value={origin} selectedCode={originAirport?.code ?? ''} onChange={value => { setOrigin(value); setOriginAirport(null); clearError('origin'); invalidateResults() }} onSelect={airport => { setOrigin(`${airport.city} — ${airport.name} (${airport.code})`); setOriginAirport(airport); clearError('origin'); invalidateResults() }} error={errors.origin} />
+          <button className="swap-route" type="button" aria-label="Kalkış ve varışı değiştir" onClick={() => { setOrigin(destination); setDestination(origin); setOriginAirport(destinationAirport); setDestinationAirport(originAirport); clearError('origin'); clearError('destination'); invalidateResults() }}><Icon name="swap" size={18} /></button>
+          <AirportField id="flight-destination" label="Nereye" value={destination} selectedCode={destinationAirport?.code ?? ''} onChange={value => { setDestination(value); setDestinationAirport(null); clearError('destination'); invalidateResults() }} onSelect={airport => { setDestination(`${airport.city} — ${airport.name} (${airport.code})`); setDestinationAirport(airport); clearError('destination'); invalidateResults() }} error={errors.destination} />
+          <label className="form-field"><span>Gidiş tarihi<i>*</i></span><input type="date" min={localToday()} value={departureDate} onChange={event => { const nextDate = event.target.value; setDepartureDate(nextDate); if (returnDate && returnDate < nextDate) setReturnDate(''); clearError('departureDate'); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.departureDate)} />{errors.departureDate && <small className="field-error">{errors.departureDate}</small>}</label>
+          {tripType === 'round-trip' && <label className="form-field"><span>Dönüş tarihi<i>*</i></span><input type="date" min={departureDate || localToday()} value={returnDate} onChange={event => { setReturnDate(event.target.value); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.returnDate)} />{errors.returnDate && <small className="field-error">{errors.returnDate}</small>}</label>}
+        </div>
+        <div className="flight-passenger-row">
+          <div className="passenger-heading"><strong>Yolcular</strong><small>Bebekler yetişkin kucağında seyahat eder.</small></div>
+          <label className="form-field"><span>Yetişkin<i>*</i></span><select value={adults} onChange={event => { setAdults(event.target.value); clearError('adults'); clearError('infants'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select>{errors.adults && <small className="field-error">{errors.adults}</small>}</label>
+          <label className="form-field"><span>Çocuk (2–11)</span><select value={children} onChange={event => { setChildren(event.target.value); clearError('children'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select>{errors.children && <small className="field-error">{errors.children}</small>}</label>
+          <label className="form-field"><span>Bebek (0–1)</span><select value={infants} onChange={event => { setInfants(event.target.value); clearError('infants'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 10 }, (_, index) => <option key={index} value={index}>{index} bebek</option>)}</select>{errors.infants && <small className="field-error">{errors.infants}</small>}</label>
           <button className="primary-action flight-submit" type="submit" disabled={state === 'loading'}><Icon name="search" size={17} />{state === 'loading' ? 'Aranıyor…' : 'Uçuş ara'}</button>
         </div>
+        {errors.passengers && <small className="field-error passenger-total-error">{errors.passengers}</small>}
       </form>
 
       <section className="flight-results" aria-live="polite">
         {state === 'idle' && <div className="results-placeholder"><Icon name="search" size={24} /><div><h2>Arama ölçütlerini tamamla</h2><p>Kalkış, varış ve tarihi seçtiğinde sonuçlar formun hemen altında listelenecek.</p></div><span>Canlı sağlayıcı verisi kullanılmaz.</span></div>}
         {state === 'loading' && <LoadingCards label="Uygun uçuşlar aranıyor" />}
-        {state === 'error' && <FeedbackState tone="error" title="Uçuşlar getirilemedi" message="Arama servisine ulaşılamadı. API ve veritabanı bağlantısını kontrol edip yeniden deneyin." />}
+        {state === 'error' && <FeedbackState tone="error" title="Uçuşlar getirilemedi" message={searchError} />}
         {state === 'ready' && results.length === 0 && <div className="results-placeholder empty-result"><Icon name="info" size={24} /><div><h2>Bu rota için sefer bulunamadı</h2><p>Yukarıdaki formdan kalkış veya varış havaalanını ya da tarihi değiştirip yeniden arayabilirsin.</p></div></div>}
-        {state === 'ready' && results.length > 0 && <><div className="result-toolbar"><div><strong>{results.length} uçuş seçeneği</strong><span>{airportCode(origin)} → {airportCode(destination)} · {date}</span></div><small>Örnek fiyata göre sıralı</small></div><div className="flight-list">{results.map(result => <article className="flight-card" key={result.fare.id}><div className="airline-summary"><span>{result.airlineCode}</span><div><strong>{result.airline}</strong><small>{result.flightNumber} · {result.fare.name}</small></div></div><div className="flight-route"><div><strong>{formatClock(result.departureAt)}</strong><span>{airportCode(origin)}</span></div><div className="route-duration"><span>{formatDuration(result.departureAt, result.arrivalAt)}</span><i /><small>{result.stops === 0 ? 'Direkt' : `${result.stops} aktarma`}</small></div><div><strong>{formatClock(result.arrivalAt)}</strong><span>{airportCode(destination)}</span></div></div><div className="fare-details"><span>{result.fare.baggage}</span><span>{result.fare.changePolicy}</span></div><div className="flight-price"><small>Kişi başı örnek fiyat</small><strong>{result.fare.price.toLocaleString('tr-TR')} {result.fare.currency}</strong><span>{result.fare.seatsAvailable} örnek koltuk</span></div></article>)}</div></>}
+        {state === 'ready' && results.length > 0 && <><div className="result-toolbar"><div><strong>{results.length} yolculuk seçeneği</strong><span>{originAirport?.code} → {destinationAirport?.code} · {departureDate}{tripType === 'round-trip' ? ` · dönüş ${returnDate}` : ' · tek yön'} · {Number(adults) + Number(children) + Number(infants)} yolcu</span></div><small>Toplam fiyata göre sıralı</small></div><div className="flight-list">{results.map(result => <article className="journey-option-card" key={result.id}><header className="journey-option-heading"><div><span>{result.tripType === 'round-trip' ? 'Gidiş dönüş' : 'Tek yön'}</span><strong>{result.outbound.segments[0].from} → {result.outbound.segments.at(-1)?.to}</strong></div><div><small>Kişi başı toplam</small><strong>{result.totalPrice.toLocaleString('tr-TR')} {result.currency}</strong><span>{result.seatsAvailable} koltuk kaldı</span></div></header><FlightItineraryView label="Gidiş" itinerary={result.outbound} />{result.inbound && <FlightItineraryView label="Dönüş" itinerary={result.inbound} />}</article>)}</div></>}
       </section>
     </main>
   )

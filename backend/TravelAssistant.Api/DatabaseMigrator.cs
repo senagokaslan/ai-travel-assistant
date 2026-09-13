@@ -27,7 +27,9 @@ internal static class DatabaseMigrator
         }
         var bootstrapEnabled = configuration.GetValue<bool?>("DatabaseBootstrap:Enabled") ?? isDevelopment;
 
-        if (!await CanConnectAsync(target.ConnectionString, cancellationToken))
+        var canConnect = await CanConnectAsync(target.ConnectionString, cancellationToken);
+        var canManageSchema = canConnect && await CanManagePublicSchemaAsync(target.ConnectionString, cancellationToken);
+        if (!canConnect || !canManageSchema)
         {
             if (!bootstrapEnabled)
             {
@@ -91,6 +93,7 @@ internal static class DatabaseMigrator
             }
 
             await EnsureDatabaseAsync(connection, target.Database!, roleName, cancellationToken);
+            await EnsureSchemaAccessAsync(admin, target.Database!, roleName, cancellationToken);
             logger.LogInformation(
                 "PostgreSQL yerel kurulumu hazır: {Database} veritabanı ve {Role} rolü doğrulandı.",
                 target.Database,
@@ -142,14 +145,73 @@ internal static class DatabaseMigrator
             connection);
         existsCommand.Parameters.AddWithValue("database_name", databaseName);
         var exists = (bool)(await existsCommand.ExecuteScalarAsync(cancellationToken))!;
-        if (exists)
-        {
-            return;
-        }
+        var sql = exists
+            ? $"ALTER DATABASE {QuoteIdentifier(databaseName)} OWNER TO {QuoteIdentifier(ownerName)}"
+            : $"CREATE DATABASE {QuoteIdentifier(databaseName)} OWNER {QuoteIdentifier(ownerName)}";
+        await using var databaseCommand = new NpgsqlCommand(sql, connection);
+        await databaseCommand.ExecuteNonQueryAsync(cancellationToken);
+    }
 
-        var sql = $"CREATE DATABASE {QuoteIdentifier(databaseName)} OWNER {QuoteIdentifier(ownerName)}";
-        await using var createCommand = new NpgsqlCommand(sql, connection);
-        await createCommand.ExecuteNonQueryAsync(cancellationToken);
+    private static async Task<bool> CanManagePublicSchemaAsync(
+        string connectionString,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var connection = new NpgsqlConnection(connectionString);
+            await connection.OpenAsync(cancellationToken);
+            await using var command = new NpgsqlCommand(
+                """
+                SELECT has_schema_privilege(current_user, 'public', 'CREATE')
+                   AND NOT EXISTS (
+                       SELECT 1 FROM pg_tables
+                       WHERE schemaname = 'public' AND tableowner <> current_user)
+                """,
+                connection);
+            return (bool)(await command.ExecuteScalarAsync(cancellationToken))!;
+        }
+        catch (NpgsqlException)
+        {
+            return false;
+        }
+    }
+
+    private static async Task EnsureSchemaAccessAsync(
+        NpgsqlConnectionStringBuilder admin,
+        string databaseName,
+        string ownerName,
+        CancellationToken cancellationToken)
+    {
+        var databaseAdmin = new NpgsqlConnectionStringBuilder(admin.ConnectionString)
+        {
+            Database = databaseName,
+            Pooling = false
+        };
+        await using var connection = new NpgsqlConnection(databaseAdmin.ConnectionString);
+        await connection.OpenAsync(cancellationToken);
+        var owner = QuoteIdentifier(ownerName);
+        await using var command = new NpgsqlCommand(
+            $$"""
+            ALTER SCHEMA public OWNER TO {{owner}};
+            GRANT ALL ON SCHEMA public TO {{owner}};
+            DO $migration_permissions$
+            DECLARE object_name text;
+            BEGIN
+                FOR object_name IN SELECT tablename FROM pg_tables WHERE schemaname = 'public'
+                LOOP
+                    EXECUTE format('ALTER TABLE public.%I OWNER TO {{owner}}', object_name);
+                END LOOP;
+                FOR object_name IN SELECT sequencename FROM pg_sequences WHERE schemaname = 'public'
+                LOOP
+                    EXECUTE format('ALTER SEQUENCE public.%I OWNER TO {{owner}}', object_name);
+                END LOOP;
+            END
+            $migration_permissions$;
+            GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{owner}};
+            GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{owner}};
+            """,
+            connection);
+        await command.ExecuteNonQueryAsync(cancellationToken);
     }
 
     private static async Task<string> QuoteLiteralAsync(
