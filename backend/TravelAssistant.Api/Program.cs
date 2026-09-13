@@ -228,6 +228,7 @@ app.MapGet("/api/flights", async (string? from, string? to, DateOnly? date, Date
     var journeyType = string.IsNullOrWhiteSpace(tripType) ? "one-way" : tripType.Trim().ToLowerInvariant();
     var adultCount = adults ?? 1; var childCount = children ?? 0; var infantCount = infants ?? 0;
     var seatedPassengers = passengers ?? adultCount + childCount;
+    var travelerCount = adultCount + childCount + infantCount;
     if (origin.Length != 3 || destination.Length != 3) return Results.BadRequest(new { message = "Kalkış ve varış havaalanları zorunludur." });
     if (origin == destination) return Results.BadRequest(new { message = "Kalkış ve varış havaalanları aynı olamaz." });
     if (date is null) return Results.BadRequest(new { message = "Gidiş tarihi zorunludur." });
@@ -248,7 +249,8 @@ app.MapGet("/api/flights", async (string? from, string? to, DateOnly? date, Date
     {
         return Results.Ok(outbound.Select(flight => new
         {
-            id = $"out-{flight.Fare.Id}", tripType = journeyType, totalPrice = flight.Fare.Price,
+            id = $"out-{flight.Fare.Id}", tripType = journeyType, pricePerTraveler = flight.Fare.Price,
+            totalPrice = flight.Fare.Price * travelerCount, travelerCount,
             currency = flight.Fare.Currency, seatsAvailable = flight.SeatsAvailable, outbound = flight,
             inbound = (FlightItinerary?)null
         }));
@@ -261,7 +263,9 @@ app.MapGet("/api/flights", async (string? from, string? to, DateOnly? date, Date
             .Select(inFlight => new
             {
                 id = $"rt-{outFlight.Fare.Id}-{inFlight.Fare.Id}", tripType = journeyType,
-                totalPrice = outFlight.Fare.Price + inFlight.Fare.Price, currency = outFlight.Fare.Currency,
+                pricePerTraveler = outFlight.Fare.Price + inFlight.Fare.Price,
+                totalPrice = (outFlight.Fare.Price + inFlight.Fare.Price) * travelerCount, travelerCount,
+                currency = outFlight.Fare.Currency,
                 seatsAvailable = Math.Min(outFlight.SeatsAvailable, inFlight.SeatsAvailable),
                 outbound = outFlight, inbound = (FlightItinerary?)inFlight
             }))

@@ -149,6 +149,14 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .result-toolbar strong { color: var(--ink); font-family: Manrope, sans-serif; font-size: 17px; }
 .result-toolbar span, .result-toolbar small { color: var(--muted); font-size: 11px; }
 .flight-list { display: grid; gap: 12px; }
+.flight-filter-panel { margin-bottom: 16px; padding: 14px; display: grid; grid-template-columns: 1.05fr repeat(6, minmax(115px, 1fr)); align-items: end; gap: 9px; background: #fff; border: 1px solid var(--line); border-radius: 12px; }
+.flight-filter-panel > header { align-self: stretch; padding-right: 12px; display: flex; flex-direction: column; justify-content: space-between; border-right: 1px solid var(--line); }
+.flight-filter-panel > header div { display: flex; align-items: center; gap: 7px; color: var(--brand); }
+.flight-filter-panel > header button { width: fit-content; padding: 0; color: var(--brand); background: transparent; border: 0; font-size: 9px; font-weight: 800; cursor: pointer; }
+.flight-filter-panel > label { min-width: 0; display: grid; gap: 5px; }
+.flight-filter-panel > label span { color: var(--muted); font-size: 9px; font-weight: 800; }
+.flight-filter-panel select, .flight-filter-panel input { width: 100%; min-height: 38px; padding: 0 9px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 8px; font-size: 10px; }
+.flight-filter-panel input:disabled { color: var(--soft-muted); background: var(--surface-soft); }
 .journey-option-card { overflow: hidden; background: #fff; border: 1px solid var(--line); border-radius: 13px; box-shadow: 0 8px 24px rgba(30, 45, 75, .06); }
 .journey-option-heading { padding: 15px 18px; display: flex; align-items: center; justify-content: space-between; gap: 20px; color: #fff; background: linear-gradient(120deg, var(--brand-dark), var(--brand)); }
 .journey-option-heading > div { display: grid; gap: 3px; }
@@ -173,6 +181,32 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .connection-row { padding: 7px 11px; color: #725a14; background: #fff9e8; border-top: 1px dashed #ead9a4; font-size: 9px; font-weight: 700; text-align: center; }
 .itinerary-block > footer { margin-top: 12px; display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 9px; }
 .itinerary-block > footer strong { margin-left: auto; color: var(--success); }
+.journey-card-action { padding: 12px 18px; display: flex; align-items: center; justify-content: space-between; gap: 18px; background: var(--surface-soft); border-top: 1px solid var(--line); }
+.journey-card-action > span { color: var(--muted); font-size: 10px; font-weight: 700; }
+.journey-card-action .secondary-action { min-height: 36px; padding-inline: 14px; }
+.flight-detail-panel { margin: 0 0 18px; overflow: hidden; background: #fff; border: 2px solid #b9c8ed; border-radius: 14px; box-shadow: 0 12px 34px rgba(30, 45, 75, .12); }
+.flight-detail-heading { padding: 17px 19px; display: flex; align-items: center; justify-content: space-between; background: #f4f7fe; border-bottom: 1px solid var(--line); }
+.flight-detail-heading h2 { margin: 4px 0 0; font-size: 21px; }
+.fare-condition-grid { margin: 0 18px 18px; display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 9px; }
+.fare-condition-grid > div { min-width: 0; padding: 13px; display: grid; gap: 5px; }
+.fare-condition-grid > div + div { border-left: 1px solid var(--line); }
+.fare-condition-grid small { color: var(--muted); font-size: 9px; }
+.fare-condition-grid strong { font-size: 10px; line-height: 1.45; }
+.detail-price-action { padding: 16px 18px; display: flex; align-items: center; justify-content: flex-end; gap: 20px; background: var(--surface-soft); border-top: 1px solid var(--line); }
+.detail-price-action > div { display: grid; justify-items: end; gap: 2px; }
+.detail-price-action small, .detail-price-action span { color: var(--muted); font-size: 9px; }
+.detail-price-action strong { color: var(--brand-dark); font-family: Manrope, sans-serif; font-size: 21px; }
+.flight-booking-summary { margin: 0 18px 18px; padding: 18px; background: #f1f8f5; border: 1px solid #cce2d8; border-radius: 10px; }
+.flight-booking-summary > header { display: flex; align-items: center; gap: 9px; }
+.flight-booking-summary > header .app-icon { color: var(--success); }
+.flight-booking-summary h3 { margin: 3px 0 0; font-size: 18px; }
+.flight-booking-summary dl { margin: 16px 0 0; display: grid; grid-template-columns: repeat(4, 1fr); }
+.flight-booking-summary dl div { padding: 0 13px; }
+.flight-booking-summary dl div:first-child { padding-left: 0; }
+.flight-booking-summary dl div + div { border-left: 1px solid #cce2d8; }
+.flight-booking-summary dt { color: var(--muted); font-size: 9px; }
+.flight-booking-summary dd { margin: 5px 0 0; color: var(--ink); font-size: 12px; font-weight: 800; }
+.flight-booking-summary p { margin: 15px 0 0; color: var(--muted); font-size: 10px; }
 .flight-card { padding: 20px; display: grid; grid-template-columns: 1.15fr 1.5fr 1.15fr .8fr; align-items: center; gap: 22px; background: #fff; border: 1px solid var(--line); border-radius: var(--radius-md); box-shadow: var(--shadow-sm); transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease; animation: result-in 320ms ease-out both; }
 .flight-card:hover, .hotel-result-card:hover { border-color: #b9cbc3; box-shadow: var(--shadow-md); transform: translateY(-2px); }
 .airline-summary { display: flex; align-items: center; gap: 11px; }
@@ -750,6 +784,11 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .flight-form-grid { grid-template-columns: minmax(180px, 1fr) 38px minmax(180px, 1fr) 160px; }
   .flight-form-grid > .form-field:nth-of-type(4) { grid-column: 1 / 2; }
   .flight-passenger-row { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
+  .flight-filter-panel { grid-template-columns: repeat(3, 1fr); }
+  .flight-filter-panel > header { grid-column: 1 / -1; padding: 0 0 10px; flex-direction: row; border-right: 0; border-bottom: 1px solid var(--line); }
+  .fare-condition-grid { grid-template-columns: repeat(2, 1fr); }
+  .fare-condition-grid > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
+  .fare-condition-grid > div:nth-child(4) { border-top: 1px solid var(--line); }
   .passenger-heading { grid-column: 1 / -1; }
   .flight-submit { grid-column: 3; }
   .hotel-results-layout { grid-template-columns: 220px minmax(0, 1fr); }
@@ -808,6 +847,8 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .search-workbench { padding: 16px; }
   .flight-form-grid { grid-template-columns: 1fr; }
   .flight-passenger-row { grid-template-columns: 1fr; }
+  .flight-filter-panel { grid-template-columns: 1fr 1fr; }
+  .flight-filter-panel > header { grid-column: 1 / -1; }
   .passenger-heading, .flight-passenger-row .flight-submit { grid-column: auto; }
   .journey-option-heading { align-items: flex-start; }
   .journey-option-heading strong { font-size: 14px; }
@@ -818,6 +859,12 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .segment-row > small { grid-column: 1 / -1; text-align: right; }
   .itinerary-block > footer { align-items: flex-start; flex-direction: column; gap: 5px; }
   .itinerary-block > footer strong { margin-left: 0; }
+  .journey-card-action, .detail-price-action { align-items: stretch; flex-direction: column; }
+  .journey-card-action .secondary-action, .detail-price-action .primary-action { width: 100%; }
+  .detail-price-action > div { justify-items: start; }
+  .fare-condition-grid, .flight-booking-summary dl { grid-template-columns: 1fr; }
+  .fare-condition-grid > div + div, .fare-condition-grid > div:nth-child(3), .fare-condition-grid > div:nth-child(4), .flight-booking-summary dl div + div { border-left: 0; border-top: 1px solid var(--line); }
+  .flight-booking-summary dl div { padding: 10px 0; }
   .flight-form-grid > .form-field:nth-of-type(3), .flight-form-grid > .form-field:nth-of-type(4), .flight-submit { grid-column: auto; }
   .swap-route { margin: -2px auto; transform: rotate(90deg); }
   .swap-route:hover { transform: rotate(270deg); }
