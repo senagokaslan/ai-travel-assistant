@@ -11,6 +11,11 @@ internal static partial class TravelChatService
         ["bir"] = 1, ["iki"] = 2, ["uc"] = 3, ["dort"] = 4, ["bes"] = 5,
         ["alti"] = 6, ["yedi"] = 7, ["sekiz"] = 8, ["dokuz"] = 9, ["on"] = 10
     };
+    private static readonly Dictionary<string, int> TurkishMonths = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["ocak"] = 1, ["subat"] = 2, ["mart"] = 3, ["nisan"] = 4, ["mayis"] = 5, ["haziran"] = 6,
+        ["temmuz"] = 7, ["agustos"] = 8, ["eylul"] = 9, ["ekim"] = 10, ["kasim"] = 11, ["aralik"] = 12
+    };
 
     public static async Task<ChatReply> ReplyAsync(
         NpgsqlConnection connection,
@@ -90,14 +95,14 @@ internal static partial class TravelChatService
     private static RouteDecision Classify(ChatContext context, string text)
     {
         var flight = Regex.IsMatch(text, @"\b(ucus|ucak|ucmak|havaalani|havalimani|bilet)\b");
-        var hotel = Regex.IsMatch(text, @"\b(otel|konaklama|konaklamak|oda|gecelik)\b");
+        var hotel = Regex.IsMatch(text, @"\b(otel|konaklama|konaklamak|oda|gece|gecelik)\b");
         if (flight && hotel) return new RouteDecision("both", null, "high");
         if (flight) return new RouteDecision("flight", "flight", "high");
         if (hotel) return new RouteDecision("hotel", "hotel", "high");
 
         if (Regex.IsMatch(text, @"\b(futbol|mac|borsa|hisse|kripto|yemek|tarif|kod|programlama|siyaset|film|muzik|hava durumu)\b"))
             return new RouteDecision("out-of-scope", null, "high");
-        if (context.Intent is "flight" or "hotel" && context.Awaiting is not null)
+        if (context.Intent is "flight" or "hotel" && (context.Awaiting is not null || CountRegex().IsMatch(text) || DateRegex().IsMatch(text) || NaturalDateRegex().IsMatch(text) || Regex.IsMatch(text, @"\b(olsun|yerine|degistir|guncelle|duzelt|yarin|haftaya|cikis|giris)\b")))
             return new RouteDecision("continuation", context.Intent, "medium");
         if (Regex.IsMatch(text, @"\b(seyahat|tatil|gezi|gitmek|plan)\b") || text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length <= 3)
             return new RouteDecision("ambiguous", null, "low");
@@ -110,21 +115,49 @@ internal static partial class TravelChatService
         context.Origin = null; context.Destination = null; context.PendingField = null; context.PendingCity = null;
         context.DepartureDate = null; context.ReturnDate = null; context.HotelLocation = null;
         context.CheckIn = null; context.CheckOut = null; context.Adults = null; context.Children = null;
-        context.Infants = null; context.Rooms = null; context.Awaiting = null;
+        context.Infants = null; context.Rooms = null; context.Nights = null; context.DateAmbiguous = false; context.Awaiting = null;
     }
 
     private static void UpdateDates(ChatContext context, string original, string normalized)
     {
         var dates = ExtractDates(original).ToArray();
+        if (context.Intent == "hotel" && dates.Length == 0 && Regex.IsMatch(normalized, @"\b(haftaya|gelecek hafta|onumuzdeki hafta)\b"))
+        {
+            context.DateAmbiguous = true;
+            return;
+        }
         if (normalized.Contains("yarin")) dates = dates.Append(DateOnly.FromDateTime(DateTime.Now).AddDays(1)).Distinct().ToArray();
         if (normalized.Contains("obur gun") || normalized.Contains("ertesi gun")) dates = dates.Append(DateOnly.FromDateTime(DateTime.Now).AddDays(2)).Distinct().ToArray();
         if (dates.Length == 0) return;
+        context.DateAmbiguous = false;
 
         if (context.Intent == "hotel")
         {
-            context.CheckIn ??= dates[0];
-            if (dates.Length > 1) context.CheckOut = dates[1];
-            else if (context.CheckIn != dates[0]) context.CheckOut ??= dates[0];
+            var correction = Regex.IsMatch(normalized, @"\b(olsun|yerine|degistir|guncelle|duzelt)\b");
+            if (dates.Length > 1)
+            {
+                context.CheckIn = dates[0]; context.CheckOut = dates[1];
+                context.Nights = dates[1].DayNumber - dates[0].DayNumber;
+            }
+            else if (normalized.Contains("cikis"))
+            {
+                context.CheckOut = dates[0];
+                if (context.CheckIn is not null) context.Nights = dates[0].DayNumber - context.CheckIn.Value.DayNumber;
+            }
+            else if (context.CheckIn is null || correction || normalized.Contains("giris"))
+            {
+                context.CheckIn = dates[0];
+                if (context.Nights is > 0) context.CheckOut = dates[0].AddDays(context.Nights.Value);
+            }
+            else if (context.CheckOut is null)
+            {
+                context.CheckOut = dates[0]; context.Nights = dates[0].DayNumber - context.CheckIn.Value.DayNumber;
+            }
+            else
+            {
+                context.CheckIn = dates[0];
+                if (context.Nights is > 0) context.CheckOut = dates[0].AddDays(context.Nights.Value);
+            }
         }
         else
         {
@@ -141,14 +174,26 @@ internal static partial class TravelChatService
         foreach (Match match in CountRegex().Matches(text))
         {
             var value = int.TryParse(match.Groups[1].Value, out var parsed) ? parsed : TurkishNumbers.GetValueOrDefault(match.Groups[1].Value);
-            switch (match.Groups[2].Value)
-            {
-                case "yetiskin": context.Adults = value; break;
-                case "cocuk": context.Children = value; break;
-                case "bebek": context.Infants = value; break;
-                case "oda": context.Rooms = value; break;
-                case "kisi": context.Adults = value; break;
-            }
+            ApplyCount(context, value, match.Groups[2].Value);
+        }
+        foreach (Match match in ReverseCountRegex().Matches(text))
+        {
+            var value = int.TryParse(match.Groups[2].Value, out var parsed) ? parsed : TurkishNumbers.GetValueOrDefault(match.Groups[2].Value);
+            ApplyCount(context, value, match.Groups[1].Value);
+        }
+    }
+
+    private static void ApplyCount(ChatContext context, int value, string unit)
+    {
+        if (unit == "yetiskin") context.Adults = value;
+        else if (unit == "cocuk") context.Children = value;
+        else if (unit == "bebek") context.Infants = value;
+        else if (unit == "oda") context.Rooms = value;
+        else if (unit.StartsWith("kisi", StringComparison.Ordinal)) context.Adults = value;
+        else if (unit.StartsWith("gece", StringComparison.Ordinal))
+        {
+            context.Nights = value;
+            if (context.Intent == "hotel" && context.CheckIn is not null) context.CheckOut = context.CheckIn.Value.AddDays(value);
         }
     }
 
@@ -249,19 +294,47 @@ internal static partial class TravelChatService
 
     private static async Task<ChatReply> BuildHotelReplyAsync(NpgsqlConnection connection, ChatContext context, CancellationToken cancellationToken)
     {
-        if (context.HotelLocation is null) return BuildPromptReply(context, "Hangi şehirde veya bölgede konaklamak istiyorsun?", "Konum");
-        if (context.CheckIn is null) return BuildPromptReply(context, "Otele giriş tarihini yazar mısın?", "Giriş tarihi");
-        if (context.CheckOut is null) return BuildPromptReply(context, "Otelden çıkış tarihini de yazar mısın?", "Çıkış tarihi");
-        if (context.CheckIn < DateOnly.FromDateTime(DateTime.Now) || context.CheckOut <= context.CheckIn || context.CheckOut.Value.DayNumber - context.CheckIn.Value.DayNumber > 30)
-        { context.CheckIn = null; context.CheckOut = null; return BuildPromptReply(context, "Tarih aralığı geçersiz. En fazla 30 gecelik, bugünden sonraki giriş ve çıkış tarihlerini yazar mısın?", "Konaklama tarihleri"); }
-        var adults = context.Adults ?? 2; var children = context.Children ?? 0; var rooms = context.Rooms ?? 1;
-        if (adults < rooms) return BuildPromptReply(context, "Her oda için en az bir yetişkin gerekiyor. Yetişkin veya oda sayısını günceller misin?", "Misafir bilgileri");
-        var hotels = await HotelAvailabilityService.SearchAsync(connection, context.HotelLocation, context.CheckIn.Value, context.CheckOut.Value, rooms, adults + children, cancellationToken);
-        var query = $"q={Uri.EscapeDataString(context.HotelLocation)}&checkIn={context.CheckIn:yyyy-MM-dd}&checkOut={context.CheckOut:yyyy-MM-dd}&rooms={rooms}&adults={adults}&children={children}";
+        if (context.CheckIn is not null && context.Nights is > 0) context.CheckOut = context.CheckIn.Value.AddDays(context.Nights.Value);
+        var missing = new List<string>();
+        if (context.HotelLocation is null) missing.Add("şehir veya bölge");
+        if (context.DateAmbiguous) missing.Add("kesin giriş tarihi (ör. 20.07.2027)");
+        else if (context.CheckIn is null) missing.Add("giriş tarihi");
+        if (context.CheckOut is null && context.Nights is null) missing.Add("çıkış tarihi veya gece sayısı");
+        if (context.Adults is null) missing.Add("yetişkin sayısı");
+        if (context.Rooms is null) missing.Add("oda sayısı");
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        if (context.CheckIn is not null && context.CheckIn < today)
+        {
+            context.CheckIn = null; context.CheckOut = null;
+            missing.Remove("giriş tarihi"); missing.Remove("çıkış tarihi veya gece sayısı");
+            missing.Add("bugünden sonraki giriş tarihi"); missing.Add("çıkış tarihi veya gece sayısı");
+        }
+        if (context.Nights is not null && context.Nights is < 1 or > 30)
+        {
+            context.Nights = null; context.CheckOut = null;
+            missing.Remove("çıkış tarihi veya gece sayısı"); missing.Add("1–30 arasında gece sayısı veya geçerli çıkış tarihi");
+        }
+        if (context.CheckIn is not null && context.CheckOut is not null && (context.CheckOut <= context.CheckIn || context.CheckOut.Value.DayNumber - context.CheckIn.Value.DayNumber > 30))
+        {
+            context.CheckOut = null; context.Nights = null;
+            missing.Remove("çıkış tarihi veya gece sayısı"); missing.Add("girişten sonra ve en fazla 30 gece olacak çıkış tarihi");
+        }
+        if (context.Adults is not null && context.Adults is < 1 or > 20) { context.Adults = null; missing.Remove("yetişkin sayısı"); missing.Add("1–20 arasında yetişkin sayısı"); }
+        if (context.Rooms is not null && context.Rooms is < 1 or > 8) { context.Rooms = null; missing.Remove("oda sayısı"); missing.Add("1–8 arasında oda sayısı"); }
+        if (context.Adults is not null && context.Rooms is not null && context.Adults < context.Rooms) missing.Add("her oda için en az bir yetişkin olacak kişi veya oda sayısı");
+        missing = missing.Distinct().ToList();
+        if (missing.Count > 0)
+            return BuildPromptReply(context, $"Otel aramasını başlatmadan önce şu bilgileri tek mesajda yazar mısın: {JoinTurkish(missing)}?", missing);
+
+        var location = context.HotelLocation!; var checkIn = context.CheckIn!.Value; var checkOut = context.CheckOut!.Value;
+        var adults = context.Adults!.Value; var children = context.Children ?? 0; var rooms = context.Rooms!.Value;
+        var hotels = await HotelAvailabilityService.SearchAsync(connection, location, checkIn, checkOut, rooms, adults + children, cancellationToken);
+        var query = $"q={Uri.EscapeDataString(location)}&checkIn={checkIn:yyyy-MM-dd}&checkOut={checkOut:yyyy-MM-dd}&rooms={rooms}&adults={adults}&children={children}";
         var results = hotels.Take(3).Select(hotel => new { kind = "hotel", hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.TotalPrice, currency = "TRY", detailUrl = $"/hotels/{hotel.Id}?{query}&option={Uri.EscapeDataString(hotel.Options[0].Key)}&quotedTotal={hotel.TotalPrice.ToString(CultureInfo.InvariantCulture)}" }).ToArray();
         context.Awaiting = null;
         var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}" };
-        var message = results.Length == 0 ? "Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz." : $"{context.HotelLocation} için en uygun {results.Length} oteli buldum.";
+        var message = results.Length == 0 ? "Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz." : $"{location} için en uygun {results.Length} oteli buldum.";
         return new ChatReply(message, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
@@ -269,11 +342,22 @@ internal static partial class TravelChatService
         new("flight", outbound.FlightNumber + (inbound is null ? "" : $" / {inbound.FlightNumber}"), outbound.Airline, outbound.Segments[0].From, outbound.Segments[^1].To, outbound.DepartureAt, outbound.ArrivalAt, outbound.DurationMinutes + (inbound?.DurationMinutes ?? 0), outbound.Stops + (inbound?.Stops ?? 0), outbound.Fare.Baggage + (inbound is null ? "" : $" · Dönüş: {inbound.Fare.Baggage}"), (outbound.Fare.Price + (inbound?.Fare.Price ?? 0)) * travelers, outbound.Fare.Currency);
 
     private static ChatReply BuildPromptReply(ChatContext context, string content, string missing)
+        => BuildPromptReply(context, content, new[] { missing });
+
+    private static ChatReply BuildPromptReply(ChatContext context, string content, IReadOnlyList<string> missing)
     {
-        context.Awaiting = missing;
-        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>() };
+        context.Awaiting = string.Join(", ", missing);
+        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing, results = Array.Empty<object>() };
         return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
+
+    private static string JoinTurkish(IReadOnlyList<string> values) => values.Count switch
+    {
+        0 => "",
+        1 => values[0],
+        2 => $"{values[0]} ve {values[1]}",
+        _ => $"{string.Join(", ", values.Take(values.Count - 1))} ve {values[^1]}"
+    };
 
     private static ChatReply BuildRoutingReply(ChatContext context, string content, string classification, string confidence, string missing)
     {
@@ -297,16 +381,42 @@ internal static partial class TravelChatService
         if (context.Children is > 0) values["Çocuk"] = context.Children.Value.ToString();
         if (context.Infants is > 0) values["Bebek"] = context.Infants.Value.ToString();
         if (context.Rooms is not null) values["Oda"] = context.Rooms.Value.ToString();
+        if (context.Nights is > 0) values["Konaklama"] = $"{context.Nights} gece";
         return values;
     }
 
     private static IEnumerable<DateOnly> ExtractDates(string text)
     {
+        var found = new HashSet<DateOnly>();
         foreach (Match match in DateRegex().Matches(text))
         {
             var value = match.Value;
-            if (DateOnly.TryParseExact(value, new[] { "dd.MM.yyyy", "d.M.yyyy", "yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date)) yield return date;
+            if (DateOnly.TryParseExact(value, new[] { "dd.MM.yyyy", "d.M.yyyy", "yyyy-MM-dd", "dd/MM/yyyy", "d/M/yyyy" }, CultureInfo.InvariantCulture, DateTimeStyles.None, out var exactDate) && found.Add(exactDate))
+            {
+                yield return exactDate;
+                continue;
+            }
+            var parts = value.Split('.', '/');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var day) && int.TryParse(parts[1], out var month) && TryCreateFutureDate(day, month, null, out var shortDate) && found.Add(shortDate)) yield return shortDate;
         }
+
+        var normalized = Normalize(text);
+        foreach (Match match in NaturalDateRegex().Matches(normalized))
+        {
+            var day = int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+            var month = TurkishMonths[match.Groups[2].Value];
+            var year = int.TryParse(match.Groups[3].Value, out var parsedYear) ? parsedYear : (int?)null;
+            if (TryCreateFutureDate(day, month, year, out var naturalDate) && found.Add(naturalDate)) yield return naturalDate;
+        }
+    }
+
+    private static bool TryCreateFutureDate(int day, int month, int? year, out DateOnly date)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var targetYear = year ?? today.Year;
+        if (!DateOnly.TryParseExact($"{day:00}.{month:00}.{targetYear}", "dd.MM.yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date)) return false;
+        if (year is null && date < today) return DateOnly.TryParseExact($"{day:00}.{month:00}.{targetYear + 1}", "dd.MM.yyyy", CultureInfo.InvariantCulture, DateTimeStyles.None, out date);
+        return true;
     }
 
     private static string Normalize(string value)
@@ -320,10 +430,14 @@ internal static partial class TravelChatService
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
-    [GeneratedRegex(@"\b(\d{1,2}|bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on)\s*(yetiskin|cocuk|bebek|kisi|oda)\b", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"\b(\d{1,2}|bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on)\s*(yetiskin|cocuk|bebek|kisi(?:lik)?|oda|gece(?:lik)?)\b", RegexOptions.IgnoreCase)]
     private static partial Regex CountRegex();
-    [GeneratedRegex(@"\b(?:\d{1,2}[./]\d{1,2}[./]\d{4}|\d{4}-\d{2}-\d{2})\b")]
+    [GeneratedRegex(@"\b(yetiskin|cocuk|bebek|kisi|oda|gece)\s+sayisi\s+(\d{1,2}|bir|iki|uc|dort|bes|alti|yedi|sekiz|dokuz|on)\b", RegexOptions.IgnoreCase)]
+    private static partial Regex ReverseCountRegex();
+    [GeneratedRegex(@"\b(?:\d{1,2}[./]\d{1,2}(?:[./]\d{4})?|\d{4}-\d{2}-\d{2})\b")]
     private static partial Regex DateRegex();
+    [GeneratedRegex(@"\b([0-3]?\d)\s+(ocak|subat|mart|nisan|mayis|haziran|temmuz|agustos|eylul|ekim|kasim|aralik)(?:\s+(\d{4}))?\b")]
+    private static partial Regex NaturalDateRegex();
 
     private sealed record AirportRow(string Code, string Name, string City);
     private sealed record FlightChatResult(string Kind, string FlightNumber, string Airline, string From, string To, DateTime DepartureAt, DateTime ArrivalAt, int DurationMinutes, int Stops, string Baggage, decimal TotalPrice, string Currency);
@@ -347,6 +461,8 @@ internal sealed class ChatContext
     public int? Children { get; set; }
     public int? Infants { get; set; }
     public int? Rooms { get; set; }
+    public int? Nights { get; set; }
+    public bool DateAmbiguous { get; set; }
     public string? Awaiting { get; set; }
     public string LastClassification { get; set; } = "ambiguous";
     public string LastConfidence { get; set; } = "low";
