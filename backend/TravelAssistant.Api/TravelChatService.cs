@@ -16,6 +16,11 @@ internal static partial class TravelChatService
         ["ocak"] = 1, ["subat"] = 2, ["mart"] = 3, ["nisan"] = 4, ["mayis"] = 5, ["haziran"] = 6,
         ["temmuz"] = 7, ["agustos"] = 8, ["eylul"] = 9, ["ekim"] = 10, ["kasim"] = 11, ["aralik"] = 12
     };
+    private static readonly Dictionary<string, DayOfWeek> TurkishWeekdays = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["pazartesi"] = DayOfWeek.Monday, ["sali"] = DayOfWeek.Tuesday, ["carsamba"] = DayOfWeek.Wednesday,
+        ["persembe"] = DayOfWeek.Thursday, ["cuma"] = DayOfWeek.Friday, ["cumartesi"] = DayOfWeek.Saturday, ["pazar"] = DayOfWeek.Sunday
+    };
 
     public static async Task<ChatReply> ReplyAsync(
         NpgsqlConnection connection,
@@ -94,7 +99,7 @@ internal static partial class TravelChatService
 
     private static RouteDecision Classify(ChatContext context, string text)
     {
-        var flight = Regex.IsMatch(text, @"\b(ucus|ucak|ucmak|havaalani|havalimani|bilet)\b");
+        var flight = Regex.IsMatch(text, @"\b(ucus|ucak|ucmak|havaalani|havalimani|bilet|gidis|donus|tek yon)\b") || Regex.IsMatch(text, @"\b[\p{L}]+['’]?(?:dan|den|tan|ten)\b.+\b[\p{L}]+['’]?(?:ya|ye)\b");
         var hotel = Regex.IsMatch(text, @"\b(otel|konaklama|konaklamak|oda|gece|gecelik)\b");
         if (flight && hotel) return new RouteDecision("both", null, "high");
         if (flight) return new RouteDecision("flight", "flight", "high");
@@ -111,15 +116,21 @@ internal static partial class TravelChatService
 
     private static void ResetContext(ChatContext context, string intent)
     {
-        context.Intent = intent; context.TripType = "one-way";
+        context.Intent = intent; context.TripType = null;
         context.Origin = null; context.Destination = null; context.PendingField = null; context.PendingCity = null;
         context.DepartureDate = null; context.ReturnDate = null; context.HotelLocation = null;
         context.CheckIn = null; context.CheckOut = null; context.Adults = null; context.Children = null;
-        context.Infants = null; context.Rooms = null; context.Nights = null; context.DateAmbiguous = false; context.Awaiting = null;
+        context.Infants = null; context.Rooms = null; context.Nights = null; context.DateAmbiguous = false; context.LocationError = null; context.Awaiting = null;
     }
 
     private static void UpdateDates(ChatContext context, string original, string normalized)
     {
+        if (context.Intent == "flight")
+        {
+            if (normalized.Contains("gidis donus") || normalized.Contains("donuslu")) context.TripType = "round-trip";
+            if (normalized.Contains("tek yon")) { context.TripType = "one-way"; context.ReturnDate = null; }
+        }
+
         var dates = ExtractDates(original).ToArray();
         if (context.Intent == "hotel" && dates.Length == 0 && Regex.IsMatch(normalized, @"\b(haftaya|gelecek hafta|onumuzdeki hafta)\b"))
         {
@@ -128,6 +139,20 @@ internal static partial class TravelChatService
         }
         if (normalized.Contains("yarin")) dates = dates.Append(DateOnly.FromDateTime(DateTime.Now).AddDays(1)).Distinct().ToArray();
         if (normalized.Contains("obur gun") || normalized.Contains("ertesi gun")) dates = dates.Append(DateOnly.FromDateTime(DateTime.Now).AddDays(2)).Distinct().ToArray();
+        if (context.Intent == "flight" && dates.Length == 0)
+        {
+            var weekday = TurkishWeekdays.Keys.FirstOrDefault(day => Regex.IsMatch(normalized, $@"\b{day}\b"));
+            if (weekday is not null)
+            {
+                var qualified = Regex.IsMatch(normalized, $@"\b(bu|gelecek|onumuzdeki)\s+{weekday}\b");
+                if (!qualified) { context.DateAmbiguous = true; return; }
+                var today = DateOnly.FromDateTime(DateTime.Now);
+                var offset = ((int)TurkishWeekdays[weekday] - (int)today.DayOfWeek + 7) % 7;
+                if (offset == 0) offset = 7;
+                if (Regex.IsMatch(normalized, $@"\b(gelecek|onumuzdeki)\s+{weekday}\b")) offset += 7;
+                dates = new[] { today.AddDays(offset) };
+            }
+        }
         if (dates.Length == 0) return;
         context.DateAmbiguous = false;
 
@@ -161,12 +186,15 @@ internal static partial class TravelChatService
         }
         else
         {
-            context.DepartureDate ??= dates[0];
-            if (dates.Length > 1) { context.ReturnDate = dates[1]; context.TripType = "round-trip"; }
-            else if (context.DepartureDate != dates[0]) { context.ReturnDate ??= dates[0]; context.TripType = "round-trip"; }
+            var correction = Regex.IsMatch(normalized, @"\b(olsun|yerine|degistir|guncelle|duzelt)\b");
+            if (dates.Length > 1) { context.DepartureDate = dates[0]; context.ReturnDate = dates[1]; context.TripType = "round-trip"; }
+            else if (context.Awaiting?.Contains("Dönüş", StringComparison.OrdinalIgnoreCase) == true ||
+                     (normalized.Contains("donus") && !normalized.Contains("gidis donus")))
+            { context.ReturnDate = dates[0]; context.TripType = "round-trip"; }
+            else if (context.DepartureDate is null || normalized.Contains("gidis") || correction) context.DepartureDate = dates[0];
+            else if (context.TripType == "round-trip" && context.ReturnDate is null) context.ReturnDate = dates[0];
+            else context.DepartureDate = dates[0];
         }
-        if (normalized.Contains("gidis donus") || normalized.Contains("donuslu")) context.TripType = "round-trip";
-        if (normalized.Contains("tek yon")) { context.TripType = "one-way"; context.ReturnDate = null; }
     }
 
     private static void UpdateCounts(ChatContext context, string text)
@@ -204,6 +232,18 @@ internal static partial class TravelChatService
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
             while (await reader.ReadAsync(cancellationToken)) airports.Add(new AirportRow(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
 
+        var cities = new List<string>();
+        await using (var cityCommand = new NpgsqlCommand("SELECT name FROM travel_cities ORDER BY length(name) DESC", connection))
+        await using (var cityReader = await cityCommand.ExecuteReaderAsync(cancellationToken))
+            while (await cityReader.ReadAsync(cancellationToken)) cities.Add(cityReader.GetString(0));
+        var cityWithoutAirport = cities.FirstOrDefault(city => text.Contains(Normalize(city)) && airports.All(airport => airport.City != city));
+        if (cityWithoutAirport is not null)
+        {
+            context.LocationError = $"{cityWithoutAirport} için katalogda aktif havaalanı bulunmuyor. Havaalanı olan başka bir şehir seç";
+            return;
+        }
+        context.LocationError = null;
+
         var explicitAirports = airports
             .Select(airport =>
             {
@@ -216,9 +256,22 @@ internal static partial class TravelChatService
             .Select(match => match.Airport)
             .DistinctBy(airport => airport.Code)
             .ToArray();
-        foreach (var airport in explicitAirports) AssignAirport(context, airport.Code);
+        if (explicitAirports.Length >= 2)
+        {
+            context.Origin = explicitAirports[0].Code; context.Destination = explicitAirports[1].Code;
+            context.PendingField = null; context.PendingCity = null;
+        }
+        else if (explicitAirports.Length == 1)
+        {
+            var code = explicitAirports[0].Code;
+            var isOrigin = Regex.IsMatch(text, @"\b(kalkis|nereden)\b") || Regex.IsMatch(text, $@"\b{Regex.Escape(Normalize(code))}['’]?(?:dan|den|tan|ten)\b");
+            var isDestination = Regex.IsMatch(text, @"\b(varis|nereye)\b") || Regex.IsMatch(text, $@"\b{Regex.Escape(Normalize(code))}['’]?(?:ya|ye)\b");
+            if (isOrigin) context.Origin = code;
+            if (isDestination) context.Destination = code;
+            if (!isOrigin && !isDestination) AssignAirport(context, code);
+        }
 
-        if (context.Origin is not null && context.Destination is not null) return;
+        if (context.Origin is not null && context.Destination is not null && explicitAirports.Length > 0) return;
         var explicitCities = explicitAirports.Select(airport => airport.City).ToHashSet();
         var cityMentions = airports.Select(item => item.City).Distinct()
             .Select(city => new { City = city, Index = text.IndexOf(Normalize(city), StringComparison.Ordinal) })
@@ -226,10 +279,15 @@ internal static partial class TravelChatService
         foreach (var mention in cityMentions)
         {
             var options = airports.Where(item => item.City == mention.City).ToArray();
-            if (options.Length == 1 && context.PendingField == "origin" && context.Origin is null && context.Destination is null) context.Destination = options[0].Code;
+            var cityText = Normalize(mention.City);
+            var originCue = Regex.IsMatch(text, $@"\b{Regex.Escape(cityText)}['’]?(?:dan|den|tan|ten)\b") || text.Contains($"kalkis {cityText}") || text.Contains($"nereden {cityText}");
+            var destinationCue = Regex.IsMatch(text, $@"\b{Regex.Escape(cityText)}['’]?(?:ya|ye)\b") || text.Contains($"varis {cityText}") || text.Contains($"nereye {cityText}");
+            if (options.Length == 1 && originCue) context.Origin = options[0].Code;
+            else if (options.Length == 1 && destinationCue) context.Destination = options[0].Code;
+            else if (options.Length == 1 && context.PendingField == "origin" && context.Origin is null && context.Destination is null) context.Destination = options[0].Code;
             else if (options.Length == 1) AssignAirport(context, options[0].Code);
-            else if (context.Origin is null) { context.PendingField = "origin"; context.PendingCity = mention.City; }
-            else if (context.Destination is null) { context.PendingField = "destination"; context.PendingCity = mention.City; }
+            else if (originCue || context.Origin is null) { context.Origin = null; context.PendingField = "origin"; context.PendingCity = mention.City; }
+            else if (destinationCue || context.Destination is null) { context.Destination = null; context.PendingField = "destination"; context.PendingCity = mention.City; }
         }
     }
 
@@ -256,6 +314,8 @@ internal static partial class TravelChatService
 
     private static async Task<ChatReply> BuildFlightReplyAsync(NpgsqlConnection connection, ChatContext context, CancellationToken cancellationToken)
     {
+        if (context.LocationError is not null)
+            return BuildPromptReply(context, context.LocationError, "Havaalanı olan şehir");
         if (context.PendingCity is not null)
         {
             await using var command = new NpgsqlCommand("SELECT BTRIM(a.iata_code) || ' — ' || a.name FROM airports a JOIN travel_cities c ON c.id=a.city_id WHERE a.is_active AND c.name=@city ORDER BY a.iata_code", connection);
@@ -268,13 +328,20 @@ internal static partial class TravelChatService
         if (context.Origin is null) return BuildPromptReply(context, "Nereden uçmak istiyorsun? Şehir, havaalanı adı veya IATA kodu yazabilirsin.", "Kalkış havaalanı");
         if (context.Destination is null) return BuildPromptReply(context, "Nereye uçmak istiyorsun?", "Varış havaalanı");
         if (context.Origin == context.Destination) { context.Destination = null; return BuildPromptReply(context, "Kalkış ve varış aynı olamaz. Farklı bir varış havaalanı yazar mısın?", "Varış havaalanı"); }
+        if (context.DateAmbiguous) return BuildPromptReply(context, "Haftanın gününü anladım ancak tarihi kesinleştirmem gerekiyor. 18.09.2026 veya ‘bu cuma’ gibi yazar mısın?", "Kesin gidiş tarihi");
         if (context.DepartureDate is null) return BuildPromptReply(context, "Hangi tarihte uçmak istiyorsun? Tarihi 14.09.2026 gibi yazabilirsin.", "Gidiş tarihi");
         if (context.DepartureDate < DateOnly.FromDateTime(DateTime.Now)) { context.DepartureDate = null; return BuildPromptReply(context, "Geçmiş tarih için arama yapamam. Yeni bir gidiş tarihi yazar mısın?", "Gidiş tarihi"); }
+        if (context.TripType is null) return BuildPromptReply(context, "Uçuş tek yön mü, gidiş dönüş mü?", "Yolculuk yönü");
         if (context.TripType == "round-trip" && context.ReturnDate is null) return BuildPromptReply(context, "Dönüş tarihini de yazar mısın?", "Dönüş tarihi");
         if (context.ReturnDate < context.DepartureDate) { context.ReturnDate = null; return BuildPromptReply(context, "Dönüş tarihi gidişten önce olamaz. Yeni dönüş tarihini yazar mısın?", "Dönüş tarihi"); }
 
-        var adults = context.Adults ?? 1; var children = context.Children ?? 0; var infants = context.Infants ?? 0;
+        if (context.Adults is null) return BuildPromptReply(context, "Kaç yetişkin yolcu olacağını yazar mısın? Çocuk ve bebek varsa sayılarını da belirtebilirsin.", "Yetişkin sayısı");
+        var adults = context.Adults.Value; var children = context.Children ?? 0; var infants = context.Infants ?? 0;
+        if (adults is < 1 or > 9) { context.Adults = null; return BuildPromptReply(context, "Yetişkin sayısı 1–9 arasında olmalı. Güncel sayıyı yazar mısın?", "1–9 arasında yetişkin sayısı"); }
+        if (children is < 0 or > 8) { context.Children = null; return BuildPromptReply(context, "Çocuk sayısı 0–8 arasında olmalı. Güncel sayıyı yazar mısın?", "0–8 arasında çocuk sayısı"); }
+        if (infants is < 0 or > 9) { context.Infants = null; return BuildPromptReply(context, "Bebek sayısı 0–9 arasında olmalı. Güncel sayıyı yazar mısın?", "0–9 arasında bebek sayısı"); }
         if (infants > adults) return BuildPromptReply(context, "Her bebek için en az bir yetişkin gerekiyor. Yetişkin sayısını günceller misin?", "Yetişkin sayısı");
+        if (adults + children + infants > 20) return BuildPromptReply(context, "Toplam yolcu sayısı 20’yi aşamaz. Yolcu sayılarını günceller misin?", "En fazla 20 yolcu");
         var seated = adults + children;
         var outbound = await FlightSearchService.SearchAsync(connection, context.Origin, context.Destination, context.DepartureDate.Value, seated, cancellationToken);
         var results = new List<object>();
@@ -372,6 +439,7 @@ internal static partial class TravelChatService
         if (context.Intent is not null) values["Arama"] = context.Intent switch { "flight" => "Uçuş", "hotel" => "Otel", "both" => "Uçuş + otel", _ => context.Intent };
         if (context.Origin is not null) values["Kalkış"] = context.Origin;
         if (context.Destination is not null) values["Varış"] = context.Destination;
+        if (context.TripType is not null) values["Yön"] = context.TripType == "round-trip" ? "Gidiş dönüş" : "Tek yön";
         if (context.HotelLocation is not null) values["Konum"] = context.HotelLocation;
         if (context.DepartureDate is not null) values["Gidiş"] = context.DepartureDate.Value.ToString("dd.MM.yyyy");
         if (context.ReturnDate is not null) values["Dönüş"] = context.ReturnDate.Value.ToString("dd.MM.yyyy");
@@ -447,7 +515,7 @@ internal static partial class TravelChatService
 internal sealed class ChatContext
 {
     public string? Intent { get; set; }
-    public string TripType { get; set; } = "one-way";
+    public string? TripType { get; set; }
     public string? Origin { get; set; }
     public string? Destination { get; set; }
     public string? PendingField { get; set; }
@@ -463,6 +531,7 @@ internal sealed class ChatContext
     public int? Rooms { get; set; }
     public int? Nights { get; set; }
     public bool DateAmbiguous { get; set; }
+    public string? LocationError { get; set; }
     public string? Awaiting { get; set; }
     public string LastClassification { get; set; } = "ambiguous";
     public string LastConfidence { get; set; } = "low";
