@@ -62,6 +62,18 @@ Gereksinimler: .NET 8 SDK, Node.js 20 veya üzeri, npm ve yerel PostgreSQL 16 ve
 
    Başlangıç ekranını `http://localhost:5173` adresinde açın. Arayüz `/api` isteklerini yerel backend'e yönlendirir.
 
+### İsteğe bağlı AI anlayıcı
+
+Sohbet, AI yapılandırılmadığında güvenli ve sınırlı yerel anlayıcıyla çalışmaya devam eder. Uyumlu bir AI çıkarım ağ geçidi kullanmak için gizli değerleri yalnızca yerel ortamda tanımlayın:
+
+```powershell
+$env:AiAssistant__Endpoint = "https://ai-gateway.example/parse-travel"
+$env:AiAssistant__ApiKey = "yerel-gizli-anahtar"
+$env:AiAssistant__TimeoutSeconds = "4"
+```
+
+AI ağ geçidinin yanıtı yalnızca tanımlı seyahat alanlarını içermelidir. Bilinmeyen alanlar, geçersiz değerler, bozuk JSON, zaman aşımı ve servis hataları reddedilir; kullanıcı sınırlı anlayıcıya ve klasik arama formuna yönlendirilir. AI çıktısından fiyat, stok, ürün veya rezervasyon bilgisi kabul edilmez. Bu bilgiler her zaman PostgreSQL kayıtlarından hesaplanır. Gerçek anahtarları ayar dosyalarına, loglara veya Git'e eklemeyin.
+
 ## Sayfalar ve yönlendirme
 
 | Adres | Erişim | İçerik |

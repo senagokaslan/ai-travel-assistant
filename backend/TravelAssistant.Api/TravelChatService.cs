@@ -27,10 +27,13 @@ internal static partial class TravelChatService
         NpgsqlConnection connection,
         Guid conversationId,
         string latestMessage,
+        AiUnderstandingOutcome aiOutcome,
         CancellationToken cancellationToken)
     {
         var context = await LoadContextAsync(connection, conversationId, cancellationToken);
         var normalized = Normalize(latestMessage);
+        context.AssistantMode = aiOutcome.Mode;
+        context.FallbackReason = aiOutcome.Reason;
         context.AppliedChange = null;
         context.InvalidCommand = null;
         context.IsFilterChange = false;
@@ -39,10 +42,23 @@ internal static partial class TravelChatService
         context.PreviousNonstopOnly = context.NonstopOnly;
         context.PreviousHotelStars = context.HotelStars;
         var routing = Classify(context, normalized);
+        if (aiOutcome.Extraction is not null && routing.Classification is "ambiguous" or "out-of-scope")
+            routing = aiOutcome.Extraction.Intent switch
+            {
+                "flight" => new RouteDecision("flight", "flight", "high"),
+                "hotel" => new RouteDecision("hotel", "hotel", "high"),
+                "both" => new RouteDecision("both", null, "high"),
+                _ => new RouteDecision("out-of-scope", null, "high")
+            };
         context.LastClassification = routing.Classification;
         context.LastConfidence = routing.Confidence;
 
         ChatReply reply;
+        if (Regex.IsMatch(normalized, @"\b(sistem talimat\w*|gizli talimat\w*|system prompt|api anahtar\w*|erisim anahtar\w*|veritabani parola\w*|connection string)\b"))
+        {
+            reply = BuildRoutingReply(context, "Gizli anahtarları, parolaları veya iç sistem talimatlarını paylaşamam. Otel ve uçuş araması konusunda yardımcı olabilirim.", "out-of-scope", "high", "Otel veya uçuş isteği");
+            return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+        }
         if (routing.Classification == "out-of-scope")
         {
             reply = BuildRoutingReply(context, "Bu konuda işlem yapamıyorum. Otel arayabilir, uçuş bulabilir veya ikisini birlikte planlamana yardımcı olabilirim.", "out-of-scope", "high", "Otel veya uçuş isteği");
@@ -69,6 +85,7 @@ internal static partial class TravelChatService
         UpdateResultCriteria(context, normalized);
         UpdateDates(context, latestMessage, normalized);
         UpdateCounts(context, normalized);
+        ApplyAiExtractionAsMissing(context, aiOutcome.Extraction);
 
         if (hadSearchBase && context.AppliedChange is null && previousDates != (context.DepartureDate, context.ReturnDate, context.CheckIn, context.CheckOut))
             context.AppliedChange = "Tarih bilgisi güncellendi";
@@ -78,10 +95,19 @@ internal static partial class TravelChatService
         if (context.Intent == "flight")
         {
             await UpdateFlightLocationsAsync(connection, context, normalized, cancellationToken);
+            if (aiOutcome.Extraction is not null && (context.Origin is null || context.Destination is null))
+            {
+                var hints = new List<string>();
+                if (context.Origin is null && aiOutcome.Extraction.Origin is not null) hints.Add($"{aiOutcome.Extraction.Origin}dan");
+                if (context.Destination is null && aiOutcome.Extraction.Destination is not null) hints.Add($"{aiOutcome.Extraction.Destination}ya");
+                if (hints.Count > 0) await UpdateFlightLocationsAsync(connection, context, Normalize(string.Join(' ', hints)), cancellationToken);
+            }
         }
         else if (context.Intent == "hotel")
         {
             await UpdateHotelLocationAsync(connection, context, normalized, cancellationToken);
+            if (context.HotelLocation is null && aiOutcome.Extraction?.HotelLocation is not null)
+                await UpdateHotelLocationAsync(connection, context, Normalize(aiOutcome.Extraction.HotelLocation), cancellationToken);
         }
 
         if (context.InvalidCommand is not null)
@@ -98,6 +124,29 @@ internal static partial class TravelChatService
         };
 
         return await SaveAndReturnAsync(connection, conversationId, context, reply, cancellationToken);
+    }
+
+    private static void ApplyAiExtractionAsMissing(ChatContext context, AiTravelExtraction? extraction)
+    {
+        if (extraction is null) return;
+        context.Adults ??= extraction.Adults;
+        context.Children ??= extraction.Children;
+        context.Rooms ??= extraction.Rooms;
+        if (context.Intent == "flight")
+        {
+            context.Infants ??= extraction.Infants;
+            context.DepartureDate ??= extraction.DepartureDate;
+            context.ReturnDate ??= extraction.ReturnDate;
+            context.TripType ??= extraction.TripType;
+        }
+        else if (context.Intent == "hotel")
+        {
+            context.CheckIn ??= extraction.CheckIn;
+            context.CheckOut ??= extraction.CheckOut;
+            context.Nights ??= extraction.Nights;
+            if (context.CheckOut is null && context.CheckIn is not null && context.Nights is > 0)
+                context.CheckOut = context.CheckIn.Value.AddDays(context.Nights.Value);
+        }
     }
 
     private static async Task<ChatReply> SaveAndReturnAsync(NpgsqlConnection connection, Guid conversationId, ChatContext context, ChatReply reply, CancellationToken cancellationToken)
@@ -461,7 +510,7 @@ internal static partial class TravelChatService
 
         var query = $"from={context.Origin}&to={context.Destination}&date={context.DepartureDate:yyyy-MM-dd}&tripType={context.TripType}&adults={adults}&children={children}&infants={infants}" + (context.ReturnDate is null ? "" : $"&returnDate={context.ReturnDate:yyyy-MM-dd}");
         context.Awaiting = null;
-        var metadata = new { intent = "flight", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}", appliedChange = context.AppliedChange };
+        var metadata = new { intent = "flight", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/flights?{query}", appliedChange = context.AppliedChange, assistantMode = context.AssistantMode, fallbackUrl = FallbackUrl(context) };
         var change = context.AppliedChange is null ? "" : $"{context.AppliedChange}. ";
         var message = results.Length == 0
             ? context.HasSearchBase ? $"{change}Bu filtrelerle eşleşen uçuş kalmadı. Filtreyi değiştirebilir veya kaldırabilirsin." : $"{change}Bu bilgilerle uygun uçuş bulamadım. Tarihi veya rotayı değiştirerek tekrar deneyebiliriz."
@@ -516,7 +565,7 @@ internal static partial class TravelChatService
         filteredHotels = context.SortPreference == "price" ? filteredHotels.OrderBy(hotel => hotel.TotalPrice).ThenByDescending(hotel => hotel.Rating) : filteredHotels;
         var results = filteredHotels.Take(3).Select(hotel => new { kind = "hotel", hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.TotalPrice, currency = "TRY", detailUrl = $"/hotels/{hotel.Id}?{query}&option={Uri.EscapeDataString(hotel.Options[0].Key)}&quotedTotal={hotel.TotalPrice.ToString(CultureInfo.InvariantCulture)}" }).ToArray();
         context.Awaiting = null;
-        var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}", appliedChange = context.AppliedChange };
+        var metadata = new { intent = "hotel", classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing = Array.Empty<string>(), results, searchUrl = $"/hotels/results?{query}", appliedChange = context.AppliedChange, assistantMode = context.AssistantMode, fallbackUrl = FallbackUrl(context) };
         var change = context.AppliedChange is null ? "" : $"{context.AppliedChange}. ";
         var message = results.Length == 0
             ? context.HasSearchBase ? $"{change}Bu filtrelerle eşleşen otel kalmadı. Filtreyi değiştirebilir veya kaldırabilirsin." : $"{change}Bu bilgilerle müsait otel bulamadım. Tarihleri veya konumu değiştirebiliriz."
@@ -542,7 +591,7 @@ internal static partial class TravelChatService
     private static ChatReply BuildPromptReply(ChatContext context, string content, IReadOnlyList<string> missing)
     {
         context.Awaiting = string.Join(", ", missing);
-        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing, results = Array.Empty<object>(), appliedChange = context.AppliedChange };
+        var metadata = new { intent = context.Intent, classification = context.LastClassification, confidence = context.LastConfidence, understood = Understood(context), missing, results = Array.Empty<object>(), appliedChange = context.AppliedChange, assistantMode = context.AssistantMode, fallbackUrl = FallbackUrl(context) };
         return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
 
@@ -557,9 +606,11 @@ internal static partial class TravelChatService
     private static ChatReply BuildRoutingReply(ChatContext context, string content, string classification, string confidence, string missing)
     {
         context.Awaiting = missing;
-        var metadata = new { intent = context.Intent, classification, confidence, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>() };
+        var metadata = new { intent = context.Intent, classification, confidence, understood = Understood(context), missing = new[] { missing }, results = Array.Empty<object>(), assistantMode = context.AssistantMode, fallbackUrl = FallbackUrl(context) };
         return new ChatReply(content, JsonSerializer.Serialize(metadata, JsonOptions), "");
     }
+
+    private static string? FallbackUrl(ChatContext context) => context.Intent switch { "hotel" => "/hotels", "flight" => "/flights", _ => null };
 
     private static Dictionary<string, string> Understood(ChatContext context)
     {
@@ -677,6 +728,8 @@ internal sealed class ChatContext
     [JsonIgnore] public string? PreviousSortPreference { get; set; }
     [JsonIgnore] public bool PreviousNonstopOnly { get; set; }
     [JsonIgnore] public int? PreviousHotelStars { get; set; }
+    [JsonIgnore] public string AssistantMode { get; set; } = "fallback";
+    [JsonIgnore] public string? FallbackReason { get; set; }
 }
 
 internal sealed record ChatReply(string Content, string MetadataJson, string ContextJson);

@@ -14,6 +14,7 @@ builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+builder.Services.AddHttpClient<AiTravelUnderstandingService>();
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -163,7 +164,7 @@ app.MapGet("/api/chat/conversations/{conversationId:guid}/messages", async (Guid
     return Results.Ok(messages);
 });
 
-app.MapPost("/api/chat/conversations/{conversationId:guid}/messages", async (Guid conversationId, ChatMessageRequest chatRequest, HttpRequest request, IConfiguration configuration, CancellationToken cancellationToken) =>
+app.MapPost("/api/chat/conversations/{conversationId:guid}/messages", async (Guid conversationId, ChatMessageRequest chatRequest, HttpRequest request, IConfiguration configuration, AiTravelUnderstandingService aiUnderstanding, CancellationToken cancellationToken) =>
 {
     if (!TryGetSession(request, sessions, out var session)) return Results.Unauthorized();
     var content = chatRequest.Content?.Trim() ?? "";
@@ -200,7 +201,8 @@ app.MapPost("/api/chat/conversations/{conversationId:guid}/messages", async (Gui
         else userMessageId = (Guid)inserted;
     }
 
-    var reply = await TravelChatService.ReplyAsync(connection, conversationId, content, cancellationToken);
+    var aiOutcome = await aiUnderstanding.TryUnderstandAsync(content, cancellationToken);
+    var reply = await TravelChatService.ReplyAsync(connection, conversationId, content, aiOutcome, cancellationToken);
     Guid assistantId;
     DateTime assistantCreatedAt;
     await using (var insertAssistant = new NpgsqlCommand("INSERT INTO chat_messages (conversation_id, role, content, reply_to_message_id, metadata) VALUES (@conversation_id, 'assistant', @content, @reply_to, @metadata::jsonb) ON CONFLICT (reply_to_message_id) DO UPDATE SET content=EXCLUDED.content RETURNING id, created_at", connection))
