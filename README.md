@@ -82,6 +82,7 @@ AI ağ geçidinin yanıtı yalnızca tanımlı seyahat alanlarını içermelidir
 | `/hotels` | Herkes | Otel arama başlangıç ekranı |
 | `/hotels/results` | Herkes | Doğrulanmış ölçütleri URL'de koruyan otel sonuç ekranı |
 | `/flights` | Herkes | Uçuş arama başlangıç ekranı |
+| `/booking/summary` | Herkes | Seçilen otel veya uçuşun güncel fiyat, müsaitlik ve koşul özeti |
 | `/chat` | Herkes | Sohbetle arama başlangıç ekranı |
 | `/bookings` | Giriş gerekli | Kullanıcının simülasyon kayıtları |
 | `/profile` | Giriş gerekli | Profil ve tercihler |

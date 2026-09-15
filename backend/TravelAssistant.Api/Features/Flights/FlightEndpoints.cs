@@ -1,6 +1,4 @@
 using Npgsql;
-using TravelAssistant.Api.Features.Auth;
-
 namespace TravelAssistant.Api.Features.Flights;
 
 internal static class FlightEndpoints
@@ -9,7 +7,6 @@ internal static class FlightEndpoints
     {
         app.MapGet("/api/travel/airports", SearchAirportsAsync);
         app.MapGet("/api/flights", SearchFlightsAsync);
-        app.MapPost("/api/flights/fares/{fareId:guid}/reserve", ReserveFareAsync);
         return app;
     }
 
@@ -58,13 +55,4 @@ internal static class FlightEndpoints
         return Results.Ok(journeys);
     }
 
-    private static async Task<IResult> ReserveFareAsync(Guid fareId, ReserveRequest request, HttpRequest httpRequest, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
-    {
-        if (!sessions.TryGet(httpRequest, out _)) return Results.Unauthorized();
-        if (request.Passengers < 1 || request.Passengers > 20) return Results.BadRequest(new { message = "Yolcu sayısı geçersiz." });
-        await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
-        await using var command = new NpgsqlCommand("UPDATE flight_fares SET seats_available = seats_available - @passengers WHERE id=@id AND is_active AND seats_available >= @passengers RETURNING seats_available", connection);
-        command.Parameters.AddWithValue("id", fareId); command.Parameters.AddWithValue("passengers", request.Passengers); var remaining = await command.ExecuteScalarAsync(cancellationToken);
-        return remaining is null ? Results.Conflict(new { message = "Bu bilet seçeneğinde yeterli koltuk kalmadı." }) : Results.Ok(new { message = "Rezervasyon simülasyonu oluşturuldu.", seatsRemaining = (int)remaining });
-    }
 }

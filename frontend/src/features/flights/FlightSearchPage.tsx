@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
 import { Icon } from '../../shared/components/Icon'
 import { formatClock, formatFlightDate, formatMinutes } from '../../shared/travelFormat'
@@ -95,7 +95,7 @@ function journeyHasCheckedBag(journey: FlightJourney) {
   return [journey.outbound, journey.inbound].filter(Boolean).some(item => /(?:\+|1[5-9]|[2-9]\d)\s*kg/i.test(item!.fare.baggage))
 }
 
-function FlightDetailPanel({ journey, adults, childCount, infants, summary, validating, error, onClose, onContinue }: { journey: FlightJourney; adults: number; childCount: number; infants: number; summary: FlightJourney | null; validating: boolean; error: string; onClose: () => void; onContinue: () => void }) {
+function FlightDetailPanel({ journey, validating, error, onClose, onContinue }: { journey: FlightJourney; validating: boolean; error: string; onClose: () => void; onContinue: () => void }) {
   return (
     <section className="flight-detail-panel" aria-labelledby="flight-detail-title">
       <header className="flight-detail-heading"><div><span className="section-label">SEÇİLEN BİLET</span><h2 id="flight-detail-title">Uçuş ayrıntıları</h2></div><button type="button" className="quiet-button" onClick={onClose}>Kapat</button></header>
@@ -107,15 +107,15 @@ function FlightDetailPanel({ journey, adults, childCount, infants, summary, vali
         <div><small>Değişiklik koşulu</small><strong>{journey.outbound.fare.changePolicy}{journey.inbound && ` · Dönüş: ${journey.inbound.fare.changePolicy}`}</strong></div>
         <div><small>Kalan kapasite</small><strong>{journey.seatsAvailable} koltuk</strong></div>
       </div>
-      {!summary && <div className="detail-price-action"><div><small>{journey.travelerCount} yolcu · kişi başı</small><span>{journey.pricePerTraveler.toLocaleString('tr-TR')} {journey.currency}</span><strong>{journey.totalPrice.toLocaleString('tr-TR')} {journey.currency}</strong></div><button className="primary-action" type="button" disabled={validating} onClick={onContinue}>{validating ? 'Yeniden kontrol ediliyor…' : 'Rezervasyon özetine geç'}</button></div>}
+      <div className="detail-price-action"><div><small>{journey.travelerCount} yolcu · kişi başı</small><span>{journey.pricePerTraveler.toLocaleString('tr-TR')} {journey.currency}</span><strong>{journey.totalPrice.toLocaleString('tr-TR')} {journey.currency}</strong></div><button className="primary-action" type="button" disabled={validating} onClick={onContinue}>{validating ? 'Yeniden kontrol ediliyor…' : 'Rezervasyon özetine geç'}</button></div>
       {error && <FeedbackState tone="error" title="Bilet yeniden doğrulanamadı" message={error} />}
-      {summary && <div className="flight-booking-summary"><header><Icon name="calendar" size={18} /><div><span className="section-label">REZERVASYON ÖZETİ</span><h3>Seçimin hazır</h3></div></header><dl><div><dt>Rota</dt><dd>{summary.outbound.segments[0].from} → {summary.outbound.segments.at(-1)?.to}{summary.inbound ? ' → ' + summary.inbound.segments.at(-1)?.to : ''}</dd></div><div><dt>Yolcular</dt><dd>{adults} yetişkin · {childCount} çocuk · {infants} bebek</dd></div><div><dt>Kişi başı</dt><dd>{summary.pricePerTraveler.toLocaleString('tr-TR')} {summary.currency}</dd></div><div><dt>Genel toplam</dt><dd>{summary.totalPrice.toLocaleString('tr-TR')} {summary.currency}</dd></div></dl><p>Fiyat ve koltuk durumu az önce yeniden doğrulandı. Bu eğitim projesinde gerçek ödeme yapılmaz.</p></div>}
     </section>
   )
 }
 
 export function FlightSearchPage() {
   const location = useLocation()
+  const navigate = useNavigate()
   const [initialQuery] = useState(() => new URLSearchParams(location.search))
   const initialOrigin = initialQuery.get('from')?.toUpperCase() ?? ''
   const initialDestination = initialQuery.get('to')?.toUpperCase() ?? ''
@@ -150,7 +150,6 @@ export function FlightSearchPage() {
   const [maxDuration, setMaxDuration] = useState('')
   const [maxPrice, setMaxPrice] = useState('')
   const [selectedJourney, setSelectedJourney] = useState<FlightJourney | null>(null)
-  const [summaryJourney, setSummaryJourney] = useState<FlightJourney | null>(null)
   const [selectionState, setSelectionState] = useState<'idle' | 'loading'>('idle')
   const [selectionError, setSelectionError] = useState('')
 
@@ -174,7 +173,6 @@ export function FlightSearchPage() {
     setResults([])
     setSearchError('')
     setSelectedJourney(null)
-    setSummaryJourney(null)
   }
 
   const buildSearchParams = () => {
@@ -227,7 +225,6 @@ export function FlightSearchPage() {
       setResults([...data].sort((a, b) => a.totalPrice - b.totalPrice))
       resetFilters()
       setSelectedJourney(null)
-      setSummaryJourney(null)
       setState('ready')
     } catch (error) {
       setSearchError(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'Arama servisine ulaşılamadı. API ve veritabanı bağlantısını kontrol edip yeniden deneyin.')
@@ -239,7 +236,6 @@ export function FlightSearchPage() {
     if (!selectedJourney) return
     setSelectionState('loading')
     setSelectionError('')
-    setSummaryJourney(null)
     try {
       const response = await fetch(`/api/flights?${buildSearchParams()}`)
       const payload: unknown = await response.json().catch(() => null)
@@ -247,7 +243,13 @@ export function FlightSearchPage() {
       const freshJourney = (payload as FlightJourney[]).find(item => item.id === selectedJourney.id)
       if (!freshJourney) throw new Error('Bu seçenek satışa kapanmış veya yeterli koltuğu kalmamış. Sonuçları yenileyin.')
       setSelectedJourney(freshJourney)
-      setSummaryJourney(freshJourney)
+      const params = new URLSearchParams({
+        kind: 'flight', outboundFareId: freshJourney.outbound.fare.id, from: originAirport?.code ?? '', to: destinationAirport?.code ?? '',
+        departureDate, tripType, adults, children, infants, quotedTotal: String(selectedJourney.totalPrice),
+      })
+      if (freshJourney.inbound) params.set('inboundFareId', freshJourney.inbound.fare.id)
+      if (tripType === 'round-trip') params.set('returnDate', returnDate)
+      navigate(`/booking/summary?${params}`)
     } catch (error) {
       setSelectionError(error instanceof Error ? error.message : 'Bilet seçeneği yeniden kontrol edilemedi.')
     } finally {
@@ -319,9 +321,9 @@ export function FlightSearchPage() {
             <label><span>Azami toplam süre</span><select value={maxDuration} onChange={event => setMaxDuration(event.target.value)}><option value="">Sınırsız</option><option value="120">2 saat</option><option value="240">4 saat</option><option value="480">8 saat</option></select></label>
             <label><span>Azami toplam fiyat</span><input type="number" min="0" step="100" value={maxPrice} disabled={currencyFilter === 'all'} placeholder={currencyFilter === 'all' ? 'Önce para birimi seç' : currencyFilter} onChange={event => setMaxPrice(event.target.value)} /></label>
           </section>
-          {selectedJourney && <FlightDetailPanel journey={selectedJourney} adults={Number(adults)} childCount={Number(children)} infants={Number(infants)} summary={summaryJourney} validating={selectionState === 'loading'} error={selectionError} onClose={() => { setSelectedJourney(null); setSummaryJourney(null); setSelectionError('') }} onContinue={() => void revalidateSelection()} />}
+          {selectedJourney && <FlightDetailPanel journey={selectedJourney} validating={selectionState === 'loading'} error={selectionError} onClose={() => { setSelectedJourney(null); setSelectionError('') }} onContinue={() => void revalidateSelection()} />}
           {filteredResults.length === 0 && <FeedbackState tone="empty" title="Filtrelerle eşleşen uçuş yok" message="Bir veya daha fazla filtreyi gevşeterek yeniden deneyin." />}
-          <div className="flight-list">{filteredResults.map(result => <article className="journey-option-card" key={result.id}><header className="journey-option-heading"><div><span>{result.tripType === 'round-trip' ? 'Gidiş dönüş' : 'Tek yön'}</span><strong>{result.outbound.segments[0].from} → {result.outbound.segments.at(-1)?.to}</strong></div><div><small>{result.travelerCount} yolcu toplamı</small><strong>{result.totalPrice.toLocaleString('tr-TR')} {result.currency}</strong><span>{result.pricePerTraveler.toLocaleString('tr-TR')} {result.currency} / kişi · {result.seatsAvailable} koltuk</span></div></header><FlightItineraryView label="Gidiş" itinerary={result.outbound} />{result.inbound && <FlightItineraryView label="Dönüş" itinerary={result.inbound} />}<footer className="journey-card-action"><span>{journeyAirlines(result).join(' · ')} · {formatMinutes(journeyDuration(result))}</span><button className="secondary-action" type="button" onClick={() => { setSelectedJourney(result); setSummaryJourney(null); setSelectionError('') }}>Ayrıntıları gör</button></footer></article>)}</div>
+          <div className="flight-list">{filteredResults.map(result => <article className="journey-option-card" key={result.id}><header className="journey-option-heading"><div><span>{result.tripType === 'round-trip' ? 'Gidiş dönüş' : 'Tek yön'}</span><strong>{result.outbound.segments[0].from} → {result.outbound.segments.at(-1)?.to}</strong></div><div><small>{result.travelerCount} yolcu toplamı</small><strong>{result.totalPrice.toLocaleString('tr-TR')} {result.currency}</strong><span>{result.pricePerTraveler.toLocaleString('tr-TR')} {result.currency} / kişi · {result.seatsAvailable} koltuk</span></div></header><FlightItineraryView label="Gidiş" itinerary={result.outbound} />{result.inbound && <FlightItineraryView label="Dönüş" itinerary={result.inbound} />}<footer className="journey-card-action"><span>{journeyAirlines(result).join(' · ')} · {formatMinutes(journeyDuration(result))}</span><button className="secondary-action" type="button" onClick={() => { setSelectedJourney(result); setSelectionError('') }}>Ayrıntıları gör</button></footer></article>)}</div>
         </>}
       </section>
     </main>

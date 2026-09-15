@@ -1,5 +1,6 @@
 using TravelAssistant.Api.Features.Admin;
 using TravelAssistant.Api.Features.Auth;
+using TravelAssistant.Api.Features.Bookings;
 using TravelAssistant.Api.Features.Chat;
 using TravelAssistant.Api.Features.Flights;
 using TravelAssistant.Api.Features.Hotels;
@@ -41,6 +42,7 @@ if (app.Environment.IsDevelopment())
 app.UseCors();
 
 app.MapAuthEndpoints();
+app.MapBookingEndpoints();
 app.MapChatEndpoints();
 app.MapFlightEndpoints();
 app.MapHotelEndpoints();

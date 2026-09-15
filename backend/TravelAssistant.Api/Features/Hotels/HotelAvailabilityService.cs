@@ -38,7 +38,7 @@ static class HotelAvailabilityService
             ? "h.id = @hotel_id"
             : "(h.name ILIKE @like OR c.name ILIKE @like OR h.district ILIKE @like)";
         var sql = $$"""
-            SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, h.board_types,
+            SELECT h.id, h.name, c.name, h.district, h.stars, h.rating, h.description, h.board_types, h.cancellation_policy,
                    r.id, r.name, r.capacity, r.features,
                    rr.stay_date, rr.nightly_price,
                    GREATEST(rr.rooms_available - COALESCE((
@@ -75,24 +75,24 @@ static class HotelAvailabilityService
             {
                 hotel = new HotelAccumulator(
                     rowHotelId, reader.GetString(1), reader.GetString(2), reader.GetString(3),
-                    reader.GetInt16(4), reader.GetDecimal(5), reader.GetString(6), reader.GetFieldValue<string[]>(7));
+                    reader.GetInt16(4), reader.GetDecimal(5), reader.GetString(6), reader.GetFieldValue<string[]>(7), reader.GetString(8));
                 hotels.Add(rowHotelId, hotel);
             }
 
-            if (reader.IsDBNull(8)) continue;
-            var roomId = reader.GetGuid(8);
+            if (reader.IsDBNull(9)) continue;
+            var roomId = reader.GetGuid(9);
             if (!hotel.Rooms.TryGetValue(roomId, out var room))
             {
-                room = new RoomAccumulator(roomId, reader.GetString(9), reader.GetInt16(10), reader.GetFieldValue<string[]>(11));
+                room = new RoomAccumulator(roomId, reader.GetString(10), reader.GetInt16(11), reader.GetFieldValue<string[]>(12));
                 hotel.Rooms.Add(roomId, room);
             }
 
-            if (!reader.IsDBNull(12))
+            if (!reader.IsDBNull(13))
             {
                 room.Nights.Add(new RoomNight(
-                    reader.GetFieldValue<DateOnly>(12),
-                    reader.GetDecimal(13),
-                    checked((int)reader.GetInt64(14))));
+                    reader.GetFieldValue<DateOnly>(13),
+                    reader.GetDecimal(14),
+                    checked((int)reader.GetInt64(15))));
             }
         }
 
@@ -152,7 +152,7 @@ static class HotelAvailabilityService
         if (options.Length == 0) return null;
         return new HotelAvailabilityResult(
             hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, hotel.Rating, hotel.Description,
-            hotel.BoardTypes,
+            hotel.BoardTypes, hotel.CancellationPolicy,
             options.SelectMany(option => option.Rooms).Select(room => room.Name).Distinct().ToArray(),
             options.SelectMany(option => option.Rooms).SelectMany(room => room.Features).Distinct().ToArray(),
             options[0].TotalPrice,
@@ -206,7 +206,7 @@ static class HotelAvailabilityService
     private sealed record AvailableRoom(Guid Id, string Name, int Capacity, string[] Features, int MinimumAvailable, decimal StayPrice, RoomNight[] Nights);
     private sealed record SelectedRoom(AvailableRoom Room, int Quantity);
     private sealed record RoomCombination(IReadOnlyList<SelectedRoom> Rooms, int TotalCapacity, decimal TotalPrice);
-    private sealed record HotelAccumulator(Guid Id, string Name, string City, string District, int Stars, decimal Rating, string Description, string[] BoardTypes)
+    private sealed record HotelAccumulator(Guid Id, string Name, string City, string District, int Stars, decimal Rating, string Description, string[] BoardTypes, string CancellationPolicy)
     {
         public Dictionary<Guid, RoomAccumulator> Rooms { get; } = new();
     }
@@ -225,6 +225,7 @@ record HotelAvailabilityResult(
     decimal Rating,
     string Description,
     string[] BoardTypes,
+    string CancellationPolicy,
     string[] Rooms,
     string[] Features,
     decimal TotalPrice,
