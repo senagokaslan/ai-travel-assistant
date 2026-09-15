@@ -41,7 +41,7 @@ internal static class BookingEndpoints
             totalPrice = option.TotalPrice,
             currency = "TRY",
             searchUrl = $"/hotels/results?q={Uri.EscapeDataString(hotel.City)}&checkIn={request.CheckIn:yyyy-MM-dd}&checkOut={request.CheckOut:yyyy-MM-dd}&rooms={request.Rooms}&adults={request.Adults}&children={request.Children}&childAges={string.Join(',', request.ChildAges)}",
-            stay = new { hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, request.CheckIn, request.CheckOut, nights, request.Rooms, request.Adults, request.Children, option },
+            stay = new { hotel.Id, hotel.Name, hotel.City, hotel.District, hotel.Stars, request.CheckIn, request.CheckOut, nights, request.Rooms, request.Adults, request.Children, request.ChildAges, option },
             priceBreakdown = option.Rooms.Select(room => new { room.RoomId, room.Name, room.Quantity, nightlyTotal = room.NightlyTotal, lineTotal = room.LineTotal, nights = room.Nights.Select(night => new { night.Date, night.Price }) }),
             conditions = new { cancellation = hotel.CancellationPolicy, board = hotel.BoardTypes }
         });

@@ -4,12 +4,13 @@ import { FeedbackState } from '../../shared/components/FeedbackState'
 import { Icon } from '../../shared/components/Icon'
 import { formatClock, formatFlightDate, formatMinutes } from '../../shared/travelFormat'
 import type { FlightItinerary } from '../flights/flightTypes'
+import { BookingDetailsForm } from './BookingDetailsForm'
 
 type RoomNight = { date: string; price: number }
 type RoomLine = { roomId: string; name: string; quantity: number; nightlyTotal: number; lineTotal: number; nights: RoomNight[] }
 type HotelSummary = {
   kind: 'hotel'; title: string; confirmationRequired: boolean; priceChanged: boolean; quotedTotal?: number; totalPrice: number; currency: string; searchUrl: string
-  stay: { id: string; name: string; city: string; district: string; stars: number; checkIn: string; checkOut: string; nights: number; rooms: number; adults: number; children: number; option: { key: string; rooms: RoomLine[] } }
+  stay: { id: string; name: string; city: string; district: string; stars: number; checkIn: string; checkOut: string; nights: number; rooms: number; adults: number; children: number; childAges: number[]; option: { key: string; rooms: RoomLine[] } }
   priceBreakdown: RoomLine[]; conditions: { cancellation: string; board: string[] }
 }
 type FlightSummary = {
@@ -107,7 +108,7 @@ export function BookingSummaryPage() {
         </div>
         <aside className="booking-confirm-card"><small>GÜNCEL TOPLAM</small><strong>{summary.totalPrice.toLocaleString('tr-TR')} {summary.currency}</strong><p>Fiyat ve müsaitlik bu sayfa açılırken yeniden doğrulandı.</p><button className="primary-action" type="button" disabled={confirmed} onClick={() => setConfirmed(true)}>{confirmed ? 'Seçim onaylandı' : 'Özeti açıkça onayla'}</button><button className="secondary-action" type="button" onClick={() => navigate(-1)}>Seçime geri dön</button><Link to={summary.searchUrl}>Arama sonuçlarına dön</Link><small>Bu onay rezervasyon oluşturmaz. Kişisel bilgi ve kesin kayıt sonraki adımda yapılır.</small></aside>
       </section>
-      {confirmed && <FeedbackState tone="success" title="Seçimini onayladın" message="Henüz rezervasyon oluşturulmadı. Kişisel bilgiler ve kesin kayıt için sonraki adıma güvenle geçilebilir." />}
+      {confirmed && request && <BookingDetailsForm kind={summary.kind} adults={summary.kind === 'hotel' ? summary.stay.adults : summary.passengers.adults} childCount={summary.kind === 'hotel' ? summary.stay.children : summary.passengers.children} infants={summary.kind === 'hotel' ? 0 : summary.passengers.infants} childAges={summary.kind === 'hotel' ? summary.stay.childAges : []} selection={request.body} />}
     </>}
   </main>
 }

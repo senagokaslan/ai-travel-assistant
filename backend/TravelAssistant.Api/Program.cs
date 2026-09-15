@@ -43,6 +43,7 @@ app.UseCors();
 
 app.MapAuthEndpoints();
 app.MapBookingEndpoints();
+app.MapBookingDetailsEndpoints();
 app.MapChatEndpoints();
 app.MapFlightEndpoints();
 app.MapHotelEndpoints();
