@@ -4,6 +4,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Npgsql;
+using TravelAssistant.Api.Features.Flights;
+using TravelAssistant.Api.Features.Hotels;
+
+namespace TravelAssistant.Api.Features.Chat;
 
 internal static partial class TravelChatService
 {

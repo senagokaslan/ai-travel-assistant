@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { FeedbackState } from './FeedbackState'
-import { Icon } from './Icon'
+import { FeedbackState } from '../../shared/components/FeedbackState'
+import { Icon } from '../../shared/components/Icon'
 
 type SearchForm = {
   location: string

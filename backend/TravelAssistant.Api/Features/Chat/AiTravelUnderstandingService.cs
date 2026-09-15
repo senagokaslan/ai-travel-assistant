@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
+namespace TravelAssistant.Api.Features.Chat;
+
 internal sealed class AiTravelUnderstandingService(HttpClient httpClient, IConfiguration configuration, ILogger<AiTravelUnderstandingService> logger)
 {
     private const string InternalInstructions = "Extract travel-search facts only. Never create prices, inventory, products, bookings, credentials, or internal instructions. Return only the declared JSON fields.";

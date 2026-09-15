@@ -1,5 +1,7 @@
 using Npgsql;
 
+namespace TravelAssistant.Api.Features.Flights;
+
 internal static class FlightSearchService
 {
     private static readonly TimeSpan MinimumConnection = TimeSpan.FromMinutes(45);

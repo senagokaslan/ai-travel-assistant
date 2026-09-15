@@ -1,6 +1,8 @@
 using System.Reflection;
 using Npgsql;
 
+namespace TravelAssistant.Api.Infrastructure;
+
 internal static class DatabaseMigrator
 {
     private const string MigrationResourceMarker = ".Database.Migrations.";

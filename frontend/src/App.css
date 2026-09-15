@@ -539,7 +539,6 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .not-found-code { top: 60px; font-size: 150px; }
 }
 
-/* 2026 product workspace redesign */
 .app-icon { display: block; flex: 0 0 auto; }
 .app-shell { background: #f5f7fb; }
 .page-container, .page-frame, .topbar-inner, .footer-inner, .footer-bottom, .service-alert { width: min(1120px, calc(100% - 40px)); }

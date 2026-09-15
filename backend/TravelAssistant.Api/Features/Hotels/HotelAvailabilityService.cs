@@ -1,5 +1,7 @@
 using Npgsql;
 
+namespace TravelAssistant.Api.Features.Hotels;
+
 static class HotelAvailabilityService
 {
     public static async Task<IReadOnlyList<HotelAvailabilityResult>> SearchAsync(
