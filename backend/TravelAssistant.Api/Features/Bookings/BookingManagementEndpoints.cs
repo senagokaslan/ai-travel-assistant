@@ -128,7 +128,7 @@ internal static class BookingManagementEndpoints
         return Results.Ok(new { booking.Id, status = "cancelled", message = "Rezervasyon iptal edildi ve ayrılan stok güvenli biçimde geri yüklendi." });
     }
 
-    private static async Task<BookingRecord?> FindOwnedAsync(NpgsqlConnection connection, Guid userId, Guid id, bool forUpdate, CancellationToken cancellationToken)
+    internal static async Task<BookingRecord?> FindOwnedAsync(NpgsqlConnection connection, Guid userId, Guid id, bool forUpdate, CancellationToken cancellationToken)
     {
         var lockClause = forUpdate ? " FOR UPDATE" : "";
         await using var command = new NpgsqlCommand(
@@ -317,7 +317,7 @@ internal static class BookingManagementEndpoints
         return Results.Conflict(new { code, message });
     }
 
-    private sealed record BookingRecord(Guid Id, string? ReferenceCode, string Kind, string Title, string Status, decimal? TotalPrice, string? Currency, string? Details, DateTime CreatedAt, DateTime? ConfirmedAt, DateTime? CancelledAt);
+    internal sealed record BookingRecord(Guid Id, string? ReferenceCode, string Kind, string Title, string Status, decimal? TotalPrice, string? Currency, string? Details, DateTime CreatedAt, DateTime? ConfirmedAt, DateTime? CancelledAt);
     private sealed record BookingTravel(DateOnly? StartDate, DateOnly? EndDate, int Adults, int Children, int Infants, int? Rooms, string? Origin, string? Destination, string? TripType, IReadOnlyList<JourneyPart> Journeys);
     private sealed record JourneyPart(string Label, string? Airline, string? FlightNumber, DateTime? DepartureAt, DateTime? ArrivalAt, int Stops, string? FareName, string? Baggage);
     private sealed record Traveler(string Type, string FirstName, string LastName, int? Age, int? AccompanyingAdultIndex);

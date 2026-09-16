@@ -74,6 +74,16 @@ $env:AiAssistant__TimeoutSeconds = "4"
 
 AI ağ geçidinin yanıtı yalnızca tanımlı seyahat alanlarını içermelidir. Bilinmeyen alanlar, geçersiz değerler, bozuk JSON, zaman aşımı ve servis hataları reddedilir; kullanıcı sınırlı anlayıcıya ve klasik arama formuna yönlendirilir. AI çıktısından fiyat, stok, ürün veya rezervasyon bilgisi kabul edilmez. Bu bilgiler her zaman PostgreSQL kayıtlarından hesaplanır. Gerçek anahtarları ayar dosyalarına, loglara veya Git'e eklemeyin.
 
+## Otomatik testler
+
+PostgreSQL çalışırken bütün backend testlerini proje kökünden çalıştırın:
+
+```powershell
+dotnet test TravelAssistant.slnx --configuration Release
+```
+
+Testler bağlantıyı önce `ConnectionStrings__Postgres` ortam değişkeninden, yoksa Git tarafından izlenmeyen `backend/TravelAssistant.Api/appsettings.Local.json` dosyasından okur. Her test çalıştırması rastgele adlandırılmış, geçici bir PostgreSQL şeması kullanır ve bitince bu şemayı siler; mevcut uygulama tablolarına ve örnek verilere yazmaz. Paket; otel ve uçuş aramasını, geçersiz tarih ve konumu, kapasiteyi, konuşma bağlamını, rezervasyon kaydını, kullanıcı sahipliğini ve aynı son koltuk için eş zamanlı işlemi kapsar.
+
 ## Sayfalar ve yönlendirme
 
 | Adres | Erişim | İçerik |

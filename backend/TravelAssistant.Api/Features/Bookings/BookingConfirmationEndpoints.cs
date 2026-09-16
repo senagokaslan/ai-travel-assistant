@@ -165,18 +165,10 @@ internal static class BookingConfirmationEndpoints
 
         foreach (var itinerary in new[] { outbound, inbound }.Where(item => item is not null).Select(item => item!))
         {
-            await using (var updateFare = new NpgsqlCommand("UPDATE flight_fares SET seats_available=seats_available-@seats WHERE id=@fare_id AND is_active AND seats_available>=@seats", connection))
-            {
-                updateFare.Parameters.AddWithValue("fare_id", itinerary.Fare.Id);
-                updateFare.Parameters.AddWithValue("seats", seatedPassengers);
-                if (await updateFare.ExecuteNonQueryAsync(cancellationToken) != 1) return await RollbackConflictAsync(transaction, "inventory_unavailable", "Bilet sınıfında yeterli koltuk kalmadı.", cancellationToken);
-            }
-            await using (var updateLegs = new NpgsqlCommand("UPDATE flight_legs SET seats_available=seats_available-@seats WHERE flight_id=@flight_id AND seats_available>=@seats", connection))
-            {
-                updateLegs.Parameters.AddWithValue("flight_id", itinerary.Id);
-                updateLegs.Parameters.AddWithValue("seats", seatedPassengers);
-                if (await updateLegs.ExecuteNonQueryAsync(cancellationToken) != itinerary.Segments.Count) return await RollbackConflictAsync(transaction, "inventory_unavailable", "Uçuş parçalarından birinde yeterli koltuk kalmadı.", cancellationToken);
-            }
+            if (!await FlightInventoryAllocator.TryDecreaseFareAsync(connection, itinerary.Fare.Id, seatedPassengers, cancellationToken))
+                return await RollbackConflictAsync(transaction, "inventory_unavailable", "Bilet sınıfında yeterli koltuk kalmadı.", cancellationToken);
+            if (!await FlightInventoryAllocator.TryDecreaseLegsAsync(connection, itinerary.Id, seatedPassengers, itinerary.Segments.Count, cancellationToken))
+                return await RollbackConflictAsync(transaction, "inventory_unavailable", "Uçuş parçalarından birinde yeterli koltuk kalmadı.", cancellationToken);
             await using var allocation = new NpgsqlCommand("INSERT INTO flight_booking_allocations (booking_id, fare_id, seats) VALUES (@booking_id, @fare_id, @seats)", connection);
             allocation.Parameters.AddWithValue("booking_id", booking.Id);
             allocation.Parameters.AddWithValue("fare_id", itinerary.Fare.Id);
@@ -263,7 +255,7 @@ internal static class BookingConfirmationEndpoints
             : null;
     }
 
-    private static async Task<ConfirmedBooking> InsertBookingAsync(NpgsqlConnection connection, Guid userId, Guid requestKey, string kind, string title, decimal totalPrice, string currency, object details, CancellationToken cancellationToken)
+    internal static async Task<ConfirmedBooking> InsertBookingAsync(NpgsqlConnection connection, Guid userId, Guid requestKey, string kind, string title, decimal totalPrice, string currency, object details, CancellationToken cancellationToken)
     {
         var id = Guid.NewGuid();
         var reference = $"SIM-{id:N}".ToUpperInvariant();
@@ -307,5 +299,5 @@ internal static class BookingConfirmationEndpoints
     }
 
     private static IResult Invalid(string message, string? field = null) => Results.BadRequest(new { code = "invalid_confirmation", field, message });
-    private sealed record ConfirmedBooking(Guid Id, string ReferenceCode, string Kind, string Title, decimal TotalPrice, string Currency);
+    internal sealed record ConfirmedBooking(Guid Id, string ReferenceCode, string Kind, string Title, decimal TotalPrice, string Currency);
 }

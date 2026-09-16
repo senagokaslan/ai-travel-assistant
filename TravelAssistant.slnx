@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/backend/">
     <Project Path="backend/TravelAssistant.Api/TravelAssistant.Api.csproj" />
+    <Project Path="backend/TravelAssistant.Api.Tests/TravelAssistant.Api.Tests.csproj" />
   </Folder>
 </Solution>

@@ -22,7 +22,7 @@ internal static class FlightEndpoints
         return Results.Ok(results);
     }
 
-    private static async Task<IResult> SearchFlightsAsync(string? from, string? to, DateOnly? date, DateOnly? returnDate, string? tripType, int? adults, int? children, int? infants, int? passengers, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
+    internal static async Task<IResult> SearchFlightsAsync(string? from, string? to, DateOnly? date, DateOnly? returnDate, string? tripType, int? adults, int? children, int? infants, int? passengers, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
     {
         var origin = (from ?? "").Trim().ToUpperInvariant(); var destination = (to ?? "").Trim().ToUpperInvariant();
         var journeyType = string.IsNullOrWhiteSpace(tripType) ? "one-way" : tripType.Trim().ToLowerInvariant();

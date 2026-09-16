@@ -31,7 +31,7 @@ internal static class HotelEndpoints
         while (await reader.ReadAsync(cancellationToken)) locations.Add(new { key = reader.GetString(0), label = reader.GetString(1), city = reader.GetString(2), district = reader.IsDBNull(3) ? null : reader.GetString(3), type = reader.GetString(4) }); return Results.Ok(locations);
     }
 
-    private static async Task<IResult> SearchHotelsAsync(string? q, DateOnly? checkIn, DateOnly? checkOut, int? adults, int? rooms, int? children, string? childAges, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
+    internal static async Task<IResult> SearchHotelsAsync(string? q, DateOnly? checkIn, DateOnly? checkOut, int? adults, int? rooms, int? children, string? childAges, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(q)) return Invalid(context, "location_not_found", "Şehir veya otel adı zorunludur.", "Öneri listesinden bir şehir veya otel seçin.");
         if (checkIn is null || checkOut is null) return Invalid(context, "invalid_date", "Giriş ve çıkış tarihleri zorunludur.", "Her iki tarihi de seçip tekrar arayın.");
