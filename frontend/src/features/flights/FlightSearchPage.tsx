@@ -245,7 +245,7 @@ export function FlightSearchPage() {
       setSelectedJourney(freshJourney)
       const params = new URLSearchParams({
         kind: 'flight', outboundFareId: freshJourney.outbound.fare.id, from: originAirport?.code ?? '', to: destinationAirport?.code ?? '',
-        departureDate, tripType, adults, children, infants, quotedTotal: String(selectedJourney.totalPrice),
+        departureDate, tripType, adults, children, infants, quotedTotal: String(selectedJourney.totalPrice), quotedCurrency: selectedJourney.currency, bookingAttempt: crypto.randomUUID(),
       })
       if (freshJourney.inbound) params.set('inboundFareId', freshJourney.inbound.fare.id)
       if (tripType === 'round-trip') params.set('returnDate', returnDate)

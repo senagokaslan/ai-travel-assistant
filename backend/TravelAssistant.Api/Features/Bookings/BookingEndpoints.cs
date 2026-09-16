@@ -29,7 +29,7 @@ internal static class BookingEndpoints
         if (option is null) return SelectionUnavailable("Seçilen oda dağılımı artık müsait değil. Güncel sonuçlardan yeni bir seçenek belirleyin.");
 
         var nights = request.CheckOut.DayNumber - request.CheckIn.DayNumber;
-        var priceChanged = request.QuotedTotal is > 0 && request.QuotedTotal != option.TotalPrice;
+        var priceChanged = request.QuotedTotal is > 0 && (request.QuotedTotal != option.TotalPrice || !string.Equals(request.QuotedCurrency, "TRY", StringComparison.OrdinalIgnoreCase));
         return Results.Ok(new
         {
             kind = "hotel",
@@ -38,6 +38,7 @@ internal static class BookingEndpoints
             confirmationRequired = true,
             priceChanged,
             quotedTotal = request.QuotedTotal,
+            quotedCurrency = request.QuotedCurrency,
             totalPrice = option.TotalPrice,
             currency = "TRY",
             searchUrl = $"/hotels/results?q={Uri.EscapeDataString(hotel.City)}&checkIn={request.CheckIn:yyyy-MM-dd}&checkOut={request.CheckOut:yyyy-MM-dd}&rooms={request.Rooms}&adults={request.Adults}&children={request.Children}&childAges={string.Join(',', request.ChildAges)}",
@@ -78,7 +79,7 @@ internal static class BookingEndpoints
 
         var perTraveler = outbound.Fare.Price + (inbound?.Fare.Price ?? 0);
         var totalPrice = perTraveler * travelerCount;
-        var priceChanged = request.QuotedTotal is > 0 && request.QuotedTotal != totalPrice;
+        var priceChanged = request.QuotedTotal is > 0 && (request.QuotedTotal != totalPrice || !string.Equals(request.QuotedCurrency, outbound.Fare.Currency, StringComparison.OrdinalIgnoreCase));
         return Results.Ok(new
         {
             kind = "flight",
@@ -87,6 +88,7 @@ internal static class BookingEndpoints
             confirmationRequired = true,
             priceChanged,
             quotedTotal = request.QuotedTotal,
+            quotedCurrency = request.QuotedCurrency,
             totalPrice,
             currency = outbound.Fare.Currency,
             searchUrl = $"/flights?from={origin}&to={destination}&date={request.DepartureDate:yyyy-MM-dd}&tripType={tripType}&adults={request.Adults}&children={request.Children}&infants={request.Infants}" + (request.ReturnDate is null ? "" : $"&returnDate={request.ReturnDate:yyyy-MM-dd}"),

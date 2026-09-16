@@ -1,11 +1,15 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
+import { useAuth } from '../auth/useAuth'
 
 type TravelerType = 'adult' | 'child' | 'infant'
 type Traveler = { type: TravelerType; firstName: string; lastName: string; age: number | null; accompanyingAdultIndex: number | null }
 type Contact = { adultIndex: number; email: string; phone: string }
 type FieldErrors = Record<string, string>
-type ValidatedDetails = { travelers: Traveler[]; contact: Contact & { name: string }; message: string }
+type ValidatedDetails = { requestKey: string; travelers: Traveler[]; contact: Contact & { name: string }; message: string }
+type ConfirmedBooking = { id: string; referenceCode: string; title: string; totalPrice: number; currency: string; message: string }
+type PriceChange = { currentTotal: number; currency: string; message: string }
 
 const TYPE_LABELS: Record<TravelerType, string> = { adult: 'Yetişkin', child: 'Çocuk', infant: 'Bebek' }
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} '-]{0,48}[\p{L}\p{M}]$/u
@@ -21,6 +25,14 @@ function initialTravelers(adults: number, children: number, infants: number, chi
 
 function normalizedName(value: string) {
   return value.trim().replace(/\s+/g, ' ')
+}
+
+function loadDraft(key: string) {
+  try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as ValidatedDetails | null } catch { return null }
+}
+
+function loadConfirmed(key: string) {
+  try { return JSON.parse(sessionStorage.getItem(key) ?? 'null') as ConfirmedBooking | null } catch { return null }
 }
 
 function validate(travelers: Traveler[], contact: Contact, kind: 'hotel' | 'flight', adults: number) {
@@ -51,13 +63,25 @@ function validate(travelers: Traveler[], contact: Contact, kind: 'hotel' | 'flig
   return errors
 }
 
-export function BookingDetailsForm({ kind, adults, childCount, infants, childAges, selection }: { kind: 'hotel' | 'flight'; adults: number; childCount: number; infants: number; childAges: number[]; selection: unknown }) {
-  const [travelers, setTravelers] = useState(() => initialTravelers(adults, childCount, infants, childAges))
-  const [contact, setContact] = useState<Contact>({ adultIndex: 0, email: '', phone: '' })
+export function BookingDetailsForm({ kind, adults, childCount, infants, childAges, selection, draftKey, searchUrl, attemptKey }: { kind: 'hotel' | 'flight'; adults: number; childCount: number; infants: number; childAges: number[]; selection: unknown; draftKey: string; searchUrl: string; attemptKey?: string }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { user } = useAuth()
+  const [initialDraft] = useState(() => loadDraft(draftKey))
+  const [requestKey] = useState(() => initialDraft?.requestKey ?? attemptKey ?? crypto.randomUUID())
+  const [travelers, setTravelers] = useState(() => initialDraft?.travelers ?? initialTravelers(adults, childCount, infants, childAges))
+  const [contact, setContact] = useState<Contact>(() => initialDraft?.contact ?? { adultIndex: 0, email: '', phone: '' })
   const [errors, setErrors] = useState<FieldErrors>({})
-  const [state, setState] = useState<'editing' | 'saving' | 'done'>('editing')
+  const [state, setState] = useState<'editing' | 'saving' | 'done'>(() => initialDraft ? 'done' : 'editing')
   const [serverError, setServerError] = useState('')
-  const [validated, setValidated] = useState<ValidatedDetails | null>(null)
+  const [validated, setValidated] = useState<ValidatedDetails | null>(initialDraft)
+  const [confirming, setConfirming] = useState(false)
+  const [confirmationError, setConfirmationError] = useState('')
+  const [priceChange, setPriceChange] = useState<PriceChange | null>(null)
+  const [acceptedTotal, setAcceptedTotal] = useState(() => Number((selection as { quotedTotal?: number }).quotedTotal ?? 0))
+  const [acceptedCurrency, setAcceptedCurrency] = useState(() => String((selection as { quotedCurrency?: string }).quotedCurrency ?? ''))
+  const confirmationKey = `${draftKey}:confirmed`
+  const [confirmedBooking, setConfirmedBooking] = useState<ConfirmedBooking | null>(() => loadConfirmed(confirmationKey))
   const adultOptions = useMemo(() => travelers.slice(0, adults), [travelers, adults])
 
   const updateTraveler = (index: number, patch: Partial<Traveler>, field: string) => {
@@ -88,7 +112,11 @@ export function BookingDetailsForm({ kind, adults, childCount, infants, childAge
         if (payload.field) setErrors({ [payload.field]: payload.message })
         throw new Error(payload.message ?? 'Kişi bilgileri doğrulanamadı.')
       }
-      setValidated(payload as ValidatedDetails)
+      const saved = { ...(payload as Omit<ValidatedDetails, 'requestKey'>), requestKey }
+      setTravelers(saved.travelers)
+      setContact(saved.contact)
+      setValidated(saved)
+      sessionStorage.setItem(draftKey, JSON.stringify(saved))
       setState('done')
     } catch (error) {
       setServerError(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'API bağlantısı kurulamadı. Bilgiler kaydedilmedi.')
@@ -96,12 +124,55 @@ export function BookingDetailsForm({ kind, adults, childCount, infants, childAge
     }
   }
 
+  const confirmBooking = async () => {
+    if (!validated) return
+    if (!user) {
+      navigate(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`)
+      return
+    }
+    setConfirming(true)
+    setConfirmationError('')
+    setPriceChange(null)
+    try {
+      const token = sessionStorage.getItem('travel-assistant-demo-session')
+      const currentSelection = { ...(selection as Record<string, unknown>), quotedTotal: acceptedTotal, quotedCurrency: acceptedCurrency }
+      const response = await fetch(`/api/bookings/confirm/${kind}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token ?? ''}` },
+        body: JSON.stringify({ requestKey, details: { selection: currentSelection, travelers, contact } }),
+      })
+      const payload = await response.json().catch(() => ({}))
+      if (response.status === 401) { navigate(`/login?returnTo=${encodeURIComponent(location.pathname + location.search)}`); return }
+      if (response.status === 409 && payload.code === 'price_changed') { setPriceChange(payload as PriceChange); return }
+      if (!response.ok) throw new Error(payload.message ?? 'Son fiyat ve müsaitlik kontrolü tamamlanamadı.')
+      const confirmed = payload as ConfirmedBooking
+      setConfirmedBooking(confirmed)
+      sessionStorage.setItem(confirmationKey, JSON.stringify(confirmed))
+    } catch (error) {
+      setConfirmationError(error instanceof Error && error.message !== 'Failed to fetch' ? error.message : 'API bağlantısı kurulamadı. Rezervasyon oluşturulmadı.')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  if (confirmedBooking) return <section className="booking-details-complete booking-confirmed-result" aria-live="polite">
+    <FeedbackState tone="success" title="Rezervasyon simülasyonu oluşturuldu" message={confirmedBooking.message} />
+    <div><span>Rezervasyon kodu</span><strong>{confirmedBooking.referenceCode}</strong><small>{confirmedBooking.title}</small></div>
+    <div><span>Onaylanan toplam</span><strong>{confirmedBooking.totalPrice.toLocaleString('tr-TR')} {confirmedBooking.currency}</strong><small>Fiyat ve stok transaction içinde son kez doğrulandı.</small></div>
+    <div><span>Rezervasyondaki kişiler</span><strong>{travelers.length} kişi</strong><small>{validated?.contact.name ?? 'İletişim kişisi kaydedildi'}</small></div>
+    <Link className="primary-action" to="/bookings">Rezervasyonlarıma git</Link>
+  </section>
+
   if (state === 'done' && validated) return <section className="booking-details-complete" aria-live="polite">
     <FeedbackState tone="success" title="Kişi ve iletişim bilgileri eklendi" message={validated.message} />
     <div className="booking-people-review"><h3>Rezervasyon özeti · kişiler</h3>{validated.travelers.map((traveler, index) => <div key={`${traveler.firstName}-${traveler.lastName}-${index}`}><span>{TYPE_LABELS[traveler.type]} {index + 1}</span><strong>{traveler.firstName} {traveler.lastName}</strong>{traveler.age !== null && <small>{traveler.age} yaş</small>}</div>)}</div>
     <div className="booking-contact-review"><span>İletişim kişisi</span><strong>{validated.contact.name}</strong><small>{validated.contact.email} · {validated.contact.phone}</small></div>
     <p className="privacy-note">Kimlik, pasaport veya ödeme bilgisi alınmadı. Henüz rezervasyon oluşturulmadı.</p>
-    <button className="secondary-action" type="button" onClick={() => setState('editing')}>Bilgileri düzenle</button>
+    {priceChange && <div className="booking-price-change"><strong>Fiyat değişti</strong><p>{priceChange.message}</p><span>Yeni toplam: {priceChange.currentTotal.toLocaleString('tr-TR')} {priceChange.currency}</span><button className="secondary-action" type="button" onClick={() => { setAcceptedTotal(priceChange.currentTotal); setAcceptedCurrency(priceChange.currency); setPriceChange(null) }}>Yeni fiyatı kabul et</button></div>}
+    {!priceChange && (acceptedTotal !== Number((selection as { quotedTotal?: number }).quotedTotal ?? 0) || acceptedCurrency !== String((selection as { quotedCurrency?: string }).quotedCurrency ?? '')) && <div className="booking-accepted-price"><span>Kabul edilen güncel toplam</span><strong>{acceptedTotal.toLocaleString('tr-TR')} {acceptedCurrency}</strong></div>}
+    {confirmationError && <><FeedbackState tone="error" title="Rezervasyon oluşturulmadı" message={confirmationError} /><Link className="secondary-action booking-recovery-link" to={searchUrl}>Güncel sonuçlara dön</Link></>}
+    <div className="booking-final-actions"><button className="secondary-action" type="button" disabled={confirming} onClick={() => { setConfirmationError(''); setPriceChange(null); setState('editing') }}>Bilgileri düzenle</button><button className="primary-action" type="button" disabled={confirming || Boolean(priceChange)} onClick={() => void confirmBooking()}>{confirming ? 'Fiyat ve stok kontrol ediliyor…' : user ? 'Son kontrolü yap ve rezervasyonu onayla' : 'Giriş yap ve son onaya geç'}</button></div>
+    <small className="booking-final-note">Son onayda güncel fiyat, oda veya koltuk sayısı yeniden sorgulanır. Değişiklik varsa işlem otomatik durur.</small>
   </section>
 
   return <form className="booking-details-form" onSubmit={submit} noValidate>

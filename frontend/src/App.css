@@ -884,6 +884,19 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .booking-people-review span, .booking-people-review small, .booking-contact-review span, .booking-contact-review small { color: var(--muted); }
 .booking-contact-review { padding: 15px 16px; display: grid; grid-template-columns: 110px 1fr auto; gap: 12px; align-items: center; background: var(--brand-soft); border-radius: 12px; font-size: 10px; }
 .booking-details-complete > .secondary-action { justify-self: end; }
+.booking-final-actions { display: flex; justify-content: flex-end; gap: 10px; }
+.booking-final-note { color: var(--muted); line-height: 1.5; text-align: right; }
+.booking-price-change { padding: 16px; display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; align-items: center; color: #8a4b08; background: #fff7e8; border: 1px solid #f0cf94; border-radius: 12px; }
+.booking-price-change strong { font-size: 13px; }
+.booking-price-change p { grid-column: 1; margin: 0; font-size: 10px; line-height: 1.5; }
+.booking-price-change span { grid-column: 1; font-size: 11px; font-weight: 800; }
+.booking-price-change .secondary-action { grid-column: 2; grid-row: 1 / 4; }
+.booking-accepted-price { padding: 13px 16px; display: flex; justify-content: space-between; gap: 16px; color: var(--success); background: var(--success-soft); border-radius: 12px; font-size: 11px; }
+.booking-confirmed-result > div:not(.feedback-state) { padding: 15px 16px; display: grid; grid-template-columns: 140px 1fr auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 12px; }
+.booking-confirmed-result > div span, .booking-confirmed-result > div small { color: var(--muted); font-size: 10px; }
+.booking-confirmed-result > div strong { font-size: 13px; }
+.booking-confirmed-result > .primary-action { justify-self: end; text-align: center; }
+.booking-recovery-link { justify-self: end; text-decoration: none; }
 
 @media (max-width: 980px) {
   .topbar-inner { grid-template-columns: auto 1fr auto; }
@@ -1022,6 +1035,14 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .booking-details-actions .primary-action { width: 100%; min-width: 0; }
   .booking-people-review > div, .booking-contact-review { grid-template-columns: 1fr; gap: 4px; }
   .booking-details-complete > .secondary-action { width: 100%; justify-self: stretch; }
+  .booking-final-actions { flex-direction: column-reverse; }
+  .booking-final-actions > button { width: 100%; }
+  .booking-final-note { text-align: left; }
+  .booking-price-change { grid-template-columns: 1fr; }
+  .booking-price-change .secondary-action { grid-column: 1; grid-row: auto; width: 100%; }
+  .booking-confirmed-result > div:not(.feedback-state) { grid-template-columns: 1fr; gap: 4px; }
+  .booking-confirmed-result > .primary-action { width: 100%; justify-self: stretch; }
+  .booking-recovery-link { width: 100%; justify-self: stretch; text-align: center; }
   .chat-page { width: 100%; padding: 0; }
   .chat-shell { width: 100%; height: calc(100vh - 104px); min-height: 520px; border-width: 0; border-radius: 0; grid-template-rows: 106px minmax(0, 1fr); }
   .chat-workspace { width: 100%; height: calc(100vh - 104px); min-height: 520px; border-width: 0; border-radius: 0; }

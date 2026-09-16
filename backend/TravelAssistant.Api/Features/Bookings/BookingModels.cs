@@ -9,7 +9,8 @@ internal sealed record HotelBookingSummaryRequest(
     int Adults,
     int Children,
     int[] ChildAges,
-    decimal? QuotedTotal);
+    decimal? QuotedTotal,
+    string? QuotedCurrency);
 
 internal sealed record FlightBookingSummaryRequest(
     Guid OutboundFareId,
@@ -22,7 +23,8 @@ internal sealed record FlightBookingSummaryRequest(
     int Adults,
     int Children,
     int Infants,
-    decimal? QuotedTotal);
+    decimal? QuotedTotal,
+    string? QuotedCurrency);
 
 internal sealed record BookingTravelerRequest(
     string Type,
@@ -45,3 +47,11 @@ internal sealed record FlightBookingDetailsRequest(
     FlightBookingSummaryRequest Selection,
     BookingTravelerRequest[] Travelers,
     BookingContactRequest Contact);
+
+internal sealed record HotelBookingConfirmationRequest(
+    Guid RequestKey,
+    HotelBookingDetailsRequest Details);
+
+internal sealed record FlightBookingConfirmationRequest(
+    Guid RequestKey,
+    FlightBookingDetailsRequest Details);

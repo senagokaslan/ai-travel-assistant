@@ -44,6 +44,7 @@ app.UseCors();
 app.MapAuthEndpoints();
 app.MapBookingEndpoints();
 app.MapBookingDetailsEndpoints();
+app.MapBookingConfirmationEndpoints();
 app.MapChatEndpoints();
 app.MapFlightEndpoints();
 app.MapHotelEndpoints();
