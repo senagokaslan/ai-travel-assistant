@@ -45,6 +45,7 @@ app.MapAuthEndpoints();
 app.MapBookingEndpoints();
 app.MapBookingDetailsEndpoints();
 app.MapBookingConfirmationEndpoints();
+app.MapBookingManagementEndpoints();
 app.MapChatEndpoints();
 app.MapFlightEndpoints();
 app.MapHotelEndpoints();

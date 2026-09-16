@@ -55,3 +55,5 @@ internal sealed record HotelBookingConfirmationRequest(
 internal sealed record FlightBookingConfirmationRequest(
     Guid RequestKey,
     FlightBookingDetailsRequest Details);
+
+internal sealed record BookingCancellationRequest(bool Confirmed);

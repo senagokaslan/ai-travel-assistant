@@ -180,6 +180,14 @@ internal static class BookingConfirmationEndpoints
             allocation.Parameters.AddWithValue("fare_id", itinerary.Fare.Id);
             allocation.Parameters.AddWithValue("seats", seatedPassengers);
             await allocation.ExecuteNonQueryAsync(cancellationToken);
+            foreach (var segment in itinerary.Segments)
+            {
+                await using var legAllocation = new NpgsqlCommand("INSERT INTO flight_booking_leg_allocations (booking_id, leg_id, seats) VALUES (@booking_id, @leg_id, @seats)", connection);
+                legAllocation.Parameters.AddWithValue("booking_id", booking.Id);
+                legAllocation.Parameters.AddWithValue("leg_id", segment.Id);
+                legAllocation.Parameters.AddWithValue("seats", seatedPassengers);
+                await legAllocation.ExecuteNonQueryAsync(cancellationToken);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);

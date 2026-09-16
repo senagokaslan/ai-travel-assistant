@@ -10,7 +10,6 @@ internal static class ProfileEndpoints
     {
         app.MapGet("/api/profile", GetProfileAsync);
         app.MapPatch("/api/profile", UpdateProfileAsync);
-        app.MapGet("/api/bookings", GetBookingsAsync);
         return app;
     }
 
@@ -37,13 +36,4 @@ internal static class ProfileEndpoints
         return Results.Ok(new { message = "Profiliniz güncellendi.", id = reader.GetGuid(0), name = reader.GetString(1), email = reader.GetString(2), role = reader.GetString(3), phone = reader.GetString(4), currency = reader.GetString(5) });
     }
 
-    private static async Task<IResult> GetBookingsAsync(HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
-    {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
-        await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
-        await using var command = new NpgsqlCommand("SELECT id, kind, title, status, created_at FROM app_bookings WHERE user_id = @user_id ORDER BY created_at DESC", connection); command.Parameters.AddWithValue("user_id", session.Id);
-        await using var reader = await command.ExecuteReaderAsync(cancellationToken); var bookings = new List<object>();
-        while (await reader.ReadAsync(cancellationToken)) bookings.Add(new { id = reader.GetGuid(0), kind = reader.GetString(1), title = reader.GetString(2), status = reader.GetString(3), createdAt = reader.GetDateTime(4) });
-        return Results.Ok(bookings);
-    }
 }

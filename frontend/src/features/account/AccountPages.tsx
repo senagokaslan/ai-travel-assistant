@@ -6,20 +6,6 @@ import { Brand } from '../../layout/AppShell'
 import { FeedbackState, type FeedbackTone } from '../../shared/components/FeedbackState'
 import { PageHeading } from '../../shared/components/PageRoutes'
 
-export function BookingsPage() {
-  const navigate = useNavigate()
-  const [count, setCount] = useState<number | null>(null)
-  const [failed, setFailed] = useState(false)
-  const token = sessionStorage.getItem('travel-assistant-demo-session')
-
-  useEffect(() => {
-    fetch('/api/bookings', { headers: { Authorization: `Bearer ${token ?? ''}` } })
-      .then(async response => { if (!response.ok) throw new Error(); setCount((await response.json() as unknown[]).length) })
-      .catch(() => setFailed(true))
-  }, [token])
-
-  return <main className="page-frame bookings-page"><PageHeading label="KAYITLARIM" title="Rezervasyon simülasyonların" description="Hesabına bağlı eğitim amaçlı simülasyon kayıtlarının genel durumunu burada takip et." />{failed ? <FeedbackState tone="error" title="Kayıt bilgisi alınamadı" message="Oturum veya API bağlantısını kontrol edip yeniden deneyin." /> : count === null ? <FeedbackState tone="loading" title="Kayıt sayısı getiriliyor" message="Hesabınızdaki simülasyonlar kontrol ediliyor." /> : <section className="booking-summary"><div className="count-panel"><small>TOPLAM KAYIT</small><strong>{count}</strong><span>rezervasyon simülasyonu</span></div><div><h2>{count ? 'Kayıtların hesabına bağlı' : 'Henüz bir simülasyon kaydın yok'}</h2><p>Bu görünüm şu anda yalnızca kayıt sayısını gösteriyor; ayrıntılı bir rezervasyon listesi sunulmuyor.</p><button className="primary-action" type="button" onClick={() => navigate('/hotels')}>Yeni otel araması</button></div></section>}</main>
-}
 export function ProfilePage() {
   const { user } = useAuth()
   const [name, setName] = useState(user?.name ?? '')
