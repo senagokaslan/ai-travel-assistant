@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import projectIdentity from '../../../content/project-identity.json'
 import { useAuth } from '../features/auth/useAuth'
 import { Icon } from '../shared/components/Icon'
@@ -53,6 +53,7 @@ export function AppShell() {
   const { user, signOut } = useAuth()
   const health = useHealth()
   const location = useLocation()
+  const navigate = useNavigate()
 
   return (
     <div className="app-shell">
@@ -73,7 +74,7 @@ export function AppShell() {
                   <span>{user.name.slice(0, 1).toLocaleUpperCase('tr-TR')}</span>
                   <b>{user.name.split(' ')[0]}</b>
                 </NavLink>
-                <button className="quiet-button" type="button" onClick={() => void signOut()}>Çıkış</button>
+                <button className="quiet-button" type="button" onClick={() => void signOut().finally(() => navigate('/', { replace: true }))}>Çıkış</button>
               </>
             ) : (
               <Link className="login-link" to="/login">Giriş yap</Link>

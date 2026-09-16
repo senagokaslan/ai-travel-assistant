@@ -49,6 +49,13 @@ internal sealed class ApiErrorHandlingMiddleware(RequestDelegate next, ILogger<A
         context.Response.OnStarting(() =>
         {
             context.Response.Headers["X-Trace-Id"] = traceId;
+            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+            context.Response.Headers["Referrer-Policy"] = "no-referrer";
+            if (context.Request.Headers.ContainsKey("Authorization") || context.Request.Path.StartsWithSegments("/api/auth"))
+            {
+                context.Response.Headers["Cache-Control"] = "no-store";
+                context.Response.Headers["Pragma"] = "no-cache";
+            }
             return Task.CompletedTask;
         });
 

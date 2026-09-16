@@ -15,7 +15,8 @@ internal static class ProfileEndpoints
 
     private static async Task<IResult> GetProfileAsync(HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("SELECT id, name, email, role, COALESCE(phone, ''), currency FROM app_users WHERE id = @id", connection); command.Parameters.AddWithValue("id", session.Id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -24,7 +25,8 @@ internal static class ProfileEndpoints
 
     private static async Task<IResult> UpdateProfileAsync(HttpRequest request, ProfileUpdate update, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         if (string.IsNullOrWhiteSpace(update.Name) || update.Name.Trim().Length < 2) return Results.BadRequest(new { message = "Ad soyad en az 2 karakter olmalı." });
         if (!Regex.IsMatch(update.Currency ?? "", "^[A-Z]{3}$")) return Results.BadRequest(new { message = "Para birimi geçersiz." });
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);

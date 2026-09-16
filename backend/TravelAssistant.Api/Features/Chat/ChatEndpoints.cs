@@ -17,7 +17,8 @@ internal static class ChatEndpoints
 
     private static async Task<IResult> GetConversationsAsync(HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("SELECT id, title, created_at, updated_at FROM chat_conversations WHERE user_id=@user_id ORDER BY updated_at DESC", connection); command.Parameters.AddWithValue("user_id", session.Id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken); var conversations = new List<object>();
@@ -27,7 +28,8 @@ internal static class ChatEndpoints
 
     private static async Task<IResult> CreateConversationAsync(HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("INSERT INTO chat_conversations (user_id) VALUES (@user_id) RETURNING id, title, created_at, updated_at", connection); command.Parameters.AddWithValue("user_id", session.Id);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken);
@@ -36,7 +38,8 @@ internal static class ChatEndpoints
 
     private static async Task<IResult> GetMessagesAsync(Guid conversationId, HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand("""
             SELECT m.id, m.role, m.content, m.metadata::text, m.created_at
@@ -53,7 +56,8 @@ internal static class ChatEndpoints
 
     private static async Task<IResult> SendMessageAsync(Guid conversationId, ChatMessageRequest chatRequest, HttpRequest request, IConfiguration configuration, SessionStore sessions, AiTravelUnderstandingService aiUnderstanding, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var session)) return Results.Unauthorized();
+        var session = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (session is null) return Results.Unauthorized();
         var content = chatRequest.Content?.Trim() ?? "";
         if (content.Length == 0) return Results.BadRequest(new { message = "Boş mesaj gönderilemez." });
         if (content.Length > 1000) return Results.BadRequest(new { message = "Mesaj en fazla 1000 karakter olabilir." });

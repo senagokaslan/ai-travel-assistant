@@ -19,7 +19,8 @@ internal static class BookingConfirmationEndpoints
 
     private static async Task<IResult> ConfirmHotelAsync(HotelBookingConfirmationRequest request, HttpRequest httpRequest, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(httpRequest, out var user)) return Results.Unauthorized();
+        var user = await sessions.GetValidUserAsync(httpRequest, configuration, cancellationToken);
+        if (user is null) return Results.Unauthorized();
         if (request.RequestKey == Guid.Empty || request.Details?.Selection is null) return Invalid("Son onay isteği eksik veya geçersiz.");
         var selection = request.Details.Selection;
         var selectionError = ValidateHotelSelection(selection);
@@ -98,7 +99,8 @@ internal static class BookingConfirmationEndpoints
 
     private static async Task<IResult> ConfirmFlightAsync(FlightBookingConfirmationRequest request, HttpRequest httpRequest, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(httpRequest, out var user)) return Results.Unauthorized();
+        var user = await sessions.GetValidUserAsync(httpRequest, configuration, cancellationToken);
+        if (user is null) return Results.Unauthorized();
         if (request.RequestKey == Guid.Empty || request.Details?.Selection is null) return Invalid("Son onay isteği eksik veya geçersiz.");
         var selection = request.Details.Selection;
         var selectionError = ValidateFlightSelection(selection);

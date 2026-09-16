@@ -17,7 +17,8 @@ internal static class BookingManagementEndpoints
 
     private static async Task<IResult> ListAsync(HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var user)) return Results.Unauthorized();
+        var user = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (user is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres"));
         await connection.OpenAsync(cancellationToken);
         await using var command = new NpgsqlCommand(
@@ -33,7 +34,8 @@ internal static class BookingManagementEndpoints
 
     private static async Task<IResult> GetAsync(Guid id, HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var user)) return Results.Unauthorized();
+        var user = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (user is null) return Results.Unauthorized();
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres"));
         await connection.OpenAsync(cancellationToken);
         var booking = await FindOwnedAsync(connection, user.Id, id, false, cancellationToken);
@@ -44,7 +46,8 @@ internal static class BookingManagementEndpoints
 
     private static async Task<IResult> CancelAsync(Guid id, BookingCancellationRequest body, HttpRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
-        if (!sessions.TryGet(request, out var user)) return Results.Unauthorized();
+        var user = await sessions.GetValidUserAsync(request, configuration, cancellationToken);
+        if (user is null) return Results.Unauthorized();
         if (body is null || !body.Confirmed) return Results.BadRequest(new { code = "cancellation_confirmation_required", message = "İptal işlemi için açık onay vermelisiniz." });
 
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres"));
