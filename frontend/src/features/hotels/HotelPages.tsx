@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
+import { apiErrorMessage } from '../../shared/apiError'
 import { Icon } from '../../shared/components/Icon'
 
 type SearchForm = {
@@ -249,6 +250,7 @@ export function HotelResultsPage() {
   const invalidSearch = Object.keys(errors).length > 0
   const [results, setResults] = useState<HotelResult[]>([])
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [loadError, setLoadError] = useState('')
   const [sort, setSort] = useState<'rating' | 'price-asc' | 'price-desc'>('rating')
   const nights = form.checkIn && form.checkOut ? daysBetween(form.checkIn, form.checkOut) : 0
 
@@ -257,7 +259,7 @@ export function HotelResultsPage() {
     const controller = new AbortController()
     const apiParams = new URLSearchParams({ q: form.location, checkIn: form.checkIn, checkOut: form.checkOut, adults: form.adults, rooms: form.rooms, children: form.childCount, childAges: form.childAges.join(',') })
     fetch(`/api/hotels?${apiParams}`, { signal: controller.signal })
-      .then(async response => { if (!response.ok) throw new Error(); return await response.json() as HotelResult[] })
+      .then(async response => { const payload: unknown = await response.json().catch(() => null); if (!response.ok) throw new Error(apiErrorMessage(payload, response, 'Otel sonuçları getirilemedi.')); return payload as HotelResult[] })
       .then(data => {
         const min = form.minPrice ? Number(form.minPrice) : 0
         const max = form.maxPrice ? Number(form.maxPrice) : Number.POSITIVE_INFINITY
@@ -271,7 +273,7 @@ export function HotelResultsPage() {
         }).filter(hotel => hotel.options.length > 0)
         setResults(filtered)
         setState('ready')
-      }).catch(error => { if (error.name !== 'AbortError') setState('error') })
+      }).catch(error => { if (error.name !== 'AbortError') { setLoadError(error instanceof Error ? error.message : 'Otel sonuçları getirilemedi. Biraz bekleyip tekrar deneyin.'); setState('error') } })
     return () => controller.abort()
   }, [form, invalidSearch])
 
@@ -320,7 +322,7 @@ export function HotelResultsPage() {
         <div className="result-toolbar"><div><strong>{visibleState === 'ready' ? `${results.length} otel bulundu` : 'Otel sonuçları'}</strong><span>Fiyatlar {nights} gecelik örnek toplamdır.</span></div><label>Sırala<select value={sort} onChange={event => setSort(event.target.value as typeof sort)}><option value="rating">Puana göre</option><option value="price-asc">Fiyat: düşükten yükseğe</option><option value="price-desc">Fiyat: yüksekten düşüğe</option></select></label></div>
         {activeCriteria.length > 0 && <div className="active-filter-strip" aria-label="Etkin filtreler">{activeCriteria.map(item => <button type="button" key={item.id} onClick={() => removeCriterion(item.id)}>{item.label}<span aria-hidden="true">×</span></button>)}</div>}
         {visibleState === 'loading' && <HotelLoadingCards />}
-        {visibleState === 'error' && <FeedbackState tone="error" title="Sonuçlar gösterilemedi" message={invalidSearch ? 'Arama bilgileri geçersiz veya eksik. Formu açıp bilgileri düzeltin.' : 'Otel kataloğuna ulaşılamadı. API bağlantısını kontrol edip tekrar deneyin.'} actionLabel="Aramayı düzenle" onAction={() => navigate(`/hotels?${searchQuery}`)} />}
+        {visibleState === 'error' && <FeedbackState tone="error" title="Sonuçlar gösterilemedi" message={invalidSearch ? 'Arama bilgileri geçersiz veya eksik. Formu açıp bilgileri düzeltin.' : loadError || 'Otel kataloğuna ulaşılamadı. Biraz bekleyip tekrar deneyin.'} actionLabel="Aramayı düzenle" onAction={() => navigate(`/hotels?${searchQuery}`)} />}
         {visibleState === 'ready' && results.length === 0 && <FeedbackState tone="empty" title="Bu ölçütlerle otel bulunamadı" message="Tarihleri, misafir sayısını veya filtreleri değiştirerek yeniden arayın." actionLabel={activeCriteria.length ? 'Filtreleri temizle' : 'Aramayı düzenle'} onAction={activeCriteria.length ? clearFilters : () => navigate(`/hotels?${searchQuery}`)} />}
         {visibleState === 'ready' && results.length > 0 && <div className="hotel-result-list">{displayResults.map(hotel => <article key={hotel.id} className="hotel-result-card availability-result-card"><div className="hotel-result-marker"><span><Icon name="hotel" size={24} /></span><small>{hotel.city}</small></div><div className="hotel-result-copy"><div className="hotel-title-row"><div><span className="stars" aria-label={`${hotel.stars} yıldız`}>{'★'.repeat(hotel.stars)}</span><h2>{hotel.name}</h2><p><Icon name="map-pin" size={14} />{hotel.district}, {hotel.city}</p></div><span className="rating-badge"><strong>{hotel.rating.toLocaleString('tr-TR')}</strong><small>5 üzerinden</small></span></div><p className="hotel-description">{hotel.description}</p><div className="hotel-tags board-tags">{hotel.boardTypes.map(board => <span key={board}>{BOARD_LABELS[board] ?? board}</span>)}</div><div className="availability-badge"><span aria-hidden="true">✓</span> Girişten çıkışa kadar her gece müsait</div><div className="room-options">{hotel.options.map((option, optionIndex) => <section className="room-option" key={option.key}><header><div><b>Oda seçeneği {optionIndex + 1}</b><span>{form.rooms} oda · toplam {option.totalCapacity} kişi kapasitesi</span></div><strong>{option.totalPrice.toLocaleString('tr-TR')} TL<small>konaklama toplamı</small></strong></header><div className="room-option-lines">{option.rooms.map(room => <details key={room.roomId}><summary><span><b>{room.quantity} × {room.name}</b><small>Oda başına {room.capacity} kişi · {room.features.join(', ') || 'Standart özellikler'}</small></span><strong>{room.lineTotal.toLocaleString('tr-TR')} TL</strong></summary><div className="nightly-breakdown"><p>Her gece ayrı ayrı doğrulandı</p>{room.nights.map(night => <span key={night.date}><time dateTime={night.date}>{formatStayDate(night.date)}</time><b>{night.price.toLocaleString('tr-TR')} TL / oda</b><small>{night.available} oda müsait</small></span>)}</div></details>)}</div></section>)}</div></div><div className="hotel-price"><small>En düşük toplam</small><strong>{hotel.totalPrice.toLocaleString('tr-TR')} TL</strong><span>{nights} gece · {form.rooms} oda</span><Link className="detail-link" to={`/hotels/${hotel.id}?${detailParams(form, hotel.options[0])}`}>Ayrıntıları gör <span aria-hidden="true">→</span></Link><p>Gerçek rezervasyon ve ödeme içermez.</p></div></article>)}</div>}
       </section>

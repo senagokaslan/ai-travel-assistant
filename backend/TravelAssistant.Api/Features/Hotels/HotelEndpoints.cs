@@ -1,4 +1,5 @@
 using Npgsql;
+using TravelAssistant.Api.Infrastructure;
 
 namespace TravelAssistant.Api.Features.Hotels;
 
@@ -30,20 +31,26 @@ internal static class HotelEndpoints
         while (await reader.ReadAsync(cancellationToken)) locations.Add(new { key = reader.GetString(0), label = reader.GetString(1), city = reader.GetString(2), district = reader.IsDBNull(3) ? null : reader.GetString(3), type = reader.GetString(4) }); return Results.Ok(locations);
     }
 
-    private static async Task<IResult> SearchHotelsAsync(string? q, DateOnly? checkIn, DateOnly? checkOut, int? adults, int? rooms, int? children, string? childAges, IConfiguration configuration, CancellationToken cancellationToken)
+    private static async Task<IResult> SearchHotelsAsync(string? q, DateOnly? checkIn, DateOnly? checkOut, int? adults, int? rooms, int? children, string? childAges, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
     {
-        if (string.IsNullOrWhiteSpace(q)) return Results.BadRequest(new { message = "Şehir veya otel adı zorunludur." });
-        if (checkIn is null || checkOut is null) return Results.BadRequest(new { message = "Giriş ve çıkış tarihleri zorunludur." });
+        if (string.IsNullOrWhiteSpace(q)) return Invalid(context, "location_not_found", "Şehir veya otel adı zorunludur.", "Öneri listesinden bir şehir veya otel seçin.");
+        if (checkIn is null || checkOut is null) return Invalid(context, "invalid_date", "Giriş ve çıkış tarihleri zorunludur.", "Her iki tarihi de seçip tekrar arayın.");
         var arrival = checkIn.Value; var departure = checkOut.Value;
-        if (arrival < DateOnly.FromDateTime(DateTime.Now)) return Results.BadRequest(new { message = "Geçmiş tarih için arama yapılamaz." });
-        if (departure <= arrival) return Results.BadRequest(new { message = "Çıkış tarihi giriş tarihinden sonra olmalı." });
-        if (departure.DayNumber - arrival.DayNumber > 30) return Results.BadRequest(new { message = "Konaklama en fazla 30 gece olabilir." });
-        if (adults is not null && (adults < 1 || adults > 20)) return Results.BadRequest(new { message = "Kişi sayısı 1-20 arasında olmalı." });
-        if (rooms is not null && (rooms < 1 || rooms > 8)) return Results.BadRequest(new { message = "Oda sayısı 1-8 arasında olmalı." });
-        if (children is not null && (children < 0 || children > 8)) return Results.BadRequest(new { message = "Çocuk sayısı 0-8 arasında olmalı." });
-        var ages = ParseAges(childAges); if (ages.Length != (children ?? 0) || ages.Any(age => age is < 0 or > 17)) return Results.BadRequest(new { message = "Çocuk sayısı ile 0-17 arasındaki çocuk yaşları eşleşmeli." });
-        if ((adults ?? 1) < (rooms ?? 1)) return Results.BadRequest(new { message = "Her oda için en az bir yetişkin olmalı." });
+        if (arrival < DateOnly.FromDateTime(DateTime.Now)) return Invalid(context, "invalid_date", "Geçmiş tarih için arama yapılamaz.", "Bugün veya daha ileri bir giriş tarihi seçin.");
+        if (departure <= arrival) return Invalid(context, "invalid_date", "Çıkış tarihi giriş tarihinden sonra olmalı.", "Çıkış tarihini giriş tarihinden sonraya alın.");
+        if (departure.DayNumber - arrival.DayNumber > 30) return Invalid(context, "invalid_date", "Konaklama en fazla 30 gece olabilir.", "Tarih aralığını 30 geceyi aşmayacak şekilde düzenleyin.");
+        if (adults is not null && (adults < 1 || adults > 20)) return Invalid(context, "invalid_guests", "Yetişkin sayısı geçersizdir.", "Yetişkin sayısını 1–20 arasında seçin.");
+        if (rooms is not null && (rooms < 1 || rooms > 8)) return Invalid(context, "invalid_guests", "Oda sayısı geçersizdir.", "Oda sayısını 1–8 arasında seçin.");
+        if (children is not null && (children < 0 || children > 8)) return Invalid(context, "invalid_guests", "Çocuk sayısı geçersizdir.", "Çocuk sayısını 0–8 arasında seçin.");
+        var ages = ParseAges(childAges); if (ages.Length != (children ?? 0) || ages.Any(age => age is < 0 or > 17)) return Invalid(context, "invalid_guests", "Çocuk sayısı ile çocuk yaşları eşleşmiyor.", "Her çocuk için 0–17 arasında bir yaş seçin.");
+        if ((adults ?? 1) < (rooms ?? 1)) return Invalid(context, "invalid_guests", "Her oda için en az bir yetişkin olmalı.", "Yetişkin sayısını oda sayısına eşit veya daha yüksek yapın.");
         await using var connection = new NpgsqlConnection(configuration.GetConnectionString("Postgres")); await connection.OpenAsync(cancellationToken);
+        await using (var location = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM travel_cities c WHERE c.name ILIKE @like UNION ALL SELECT 1 FROM hotels h JOIN travel_cities c ON c.id=h.city_id WHERE h.is_active AND (h.name ILIKE @like OR h.district ILIKE @like OR c.name ILIKE @like))", connection))
+        {
+            location.Parameters.AddWithValue("like", $"%{q.Trim()}%");
+            if (!(bool)(await location.ExecuteScalarAsync(cancellationToken))!)
+                return ApiErrorResults.Create(context, 404, "location_not_found", "Bu adla eşleşen aktif bir şehir veya otel bulunamadı.", "Konumu öneri listesinden yeniden seçin.");
+        }
         return Results.Ok(await HotelAvailabilityService.SearchAsync(connection, q, arrival, departure, rooms ?? 1, (adults ?? 1) + (children ?? 0), cancellationToken));
     }
 
@@ -71,4 +78,5 @@ internal static class HotelEndpoints
     }
 
     private static int[] ParseAges(string? childAges) => string.IsNullOrWhiteSpace(childAges) ? Array.Empty<int>() : childAges.Split(',').Select(value => int.TryParse(value, out var age) ? age : -1).ToArray();
+    private static IResult Invalid(HttpContext context, string code, string message, string action) => ApiErrorResults.Create(context, 400, code, message, action);
 }

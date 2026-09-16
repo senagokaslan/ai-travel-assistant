@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
 import { Icon } from '../../shared/components/Icon'
 import { PageHeading } from '../../shared/components/PageRoutes'
+import { apiErrorMessage } from '../../shared/apiError'
 
 type BookingListItem = {
   id: string; referenceCode: string; kind: 'hotel' | 'flight'; title: string; status: string; totalPrice: number | null; currency: string | null
@@ -42,18 +43,19 @@ export function BookingsPage() {
   const navigate = useNavigate()
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading')
   const [bookings, setBookings] = useState<BookingListItem[]>([])
+  const [error, setError] = useState('')
 
   useEffect(() => {
     fetch('/api/bookings', { headers: sessionHeaders() })
-      .then(async response => { if (!response.ok) throw new Error(); return response.json() as Promise<BookingListItem[]> })
+      .then(async response => { const payload: unknown = await response.json().catch(() => null); if (!response.ok) throw new Error(apiErrorMessage(payload, response, 'Rezervasyonlar alınamadı.')); return payload as BookingListItem[] })
       .then(data => { setBookings(data); setState('ready') })
-      .catch(() => setState('error'))
+      .catch(fetchError => { setError(fetchError instanceof Error ? fetchError.message : 'Rezervasyonlar alınamadı. Biraz bekleyip tekrar deneyin.'); setState('error') })
   }, [])
 
   return <main className="page-frame bookings-page">
     <PageHeading label="KAYITLARIM" title="Rezervasyonların" description="Güncel ve geçmiş rezervasyonlarını incele; uygun kayıtları güvenli biçimde iptal et." />
     {state === 'loading' && <FeedbackState tone="loading" title="Rezervasyonlar getiriliyor" message="Hesabına bağlı kayıtlar kontrol ediliyor." />}
-    {state === 'error' && <FeedbackState tone="error" title="Rezervasyonlar alınamadı" message="Oturum veya API bağlantısını kontrol edip yeniden deneyin." />}
+    {state === 'error' && <FeedbackState tone="error" title="Rezervasyonlar alınamadı" message={error} actionLabel="Tekrar dene" onAction={() => navigate(0)} />}
     {state === 'ready' && bookings.length === 0 && <FeedbackState tone="empty" title="Henüz rezervasyonun yok" message="Otel veya uçuş aramasından seçimini onayladığında kaydın burada görünecek." actionLabel="Otel ara" onAction={() => navigate('/hotels')} />}
     {state === 'ready' && bookings.length > 0 && <section className="booking-history-shell">
       <header><div><small>TOPLAM KAYIT</small><strong>{bookings.length}</strong></div><p>Liste yalnızca giriş yaptığın hesaba ait rezervasyonları içerir.</p></header>
@@ -102,7 +104,7 @@ export function BookingDetailPage() {
       const response = await fetch(`/api/bookings/${id}/cancel`, { method: 'POST', headers: { ...sessionHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ confirmed: true }) })
       const payload = await response.json().catch(() => ({}))
       if (!response.ok) {
-        setFeedback({ tone: 'error', title: 'İptal uygulanmadı', message: payload.message ?? 'Rezervasyon iptal edilemedi.' })
+        setFeedback({ tone: 'error', title: 'İptal uygulanmadı', message: apiErrorMessage(payload, response, 'Rezervasyon iptal edilemedi.') })
         await load()
         return
       }

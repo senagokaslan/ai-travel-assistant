@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { AuthContext, type SessionUser } from './context'
+import { apiErrorMessage } from '../../shared/apiError'
 
 const STORAGE_KEY = 'travel-assistant-demo-session'
 
@@ -14,7 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const request = async (url: string, body: unknown, establishSession = true) => {
     setError(null); setLoading(true)
-    try { const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const data = await response.json().catch(() => ({})); if (!response.ok) { setError(response.status === 401 ? 'E-posta veya parola hatalı.' : data.message ?? 'İşlem tamamlanamadı. Tekrar deneyin.'); return false }; if (establishSession) { if (data.token) sessionStorage.setItem(STORAGE_KEY, data.token); setUser(data.user) }; return true } catch { setError('Sunucuya bağlanılamadı. Bağlantınızı kontrol edip tekrar deneyin.'); return false } finally { setLoading(false) }
+    try { const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }); const data = await response.json().catch(() => ({})); if (!response.ok) { setError(response.status === 401 ? 'E-posta veya parola hatalı.' : apiErrorMessage(data, response, 'İşlem tamamlanamadı. Tekrar deneyin.')); return false }; if (establishSession) { if (data.token) sessionStorage.setItem(STORAGE_KEY, data.token); setUser(data.user) }; return true } catch { setError('Sunucuya bağlanılamadı. Bağlantınızı kontrol edip tekrar deneyin.'); return false } finally { setLoading(false) }
   }
 
   const value = useMemo(() => ({

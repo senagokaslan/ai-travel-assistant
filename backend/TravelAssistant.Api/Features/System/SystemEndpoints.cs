@@ -1,4 +1,5 @@
 using Npgsql;
+using TravelAssistant.Api.Infrastructure;
 
 namespace TravelAssistant.Api.Features.System;
 
@@ -18,7 +19,7 @@ internal static class SystemEndpoints
         return app;
     }
 
-    private static async Task<IResult> GetHealthAsync(IConfiguration configuration, ILogger<Program> logger, CancellationToken cancellationToken)
+    private static async Task<IResult> GetHealthAsync(HttpContext context, IConfiguration configuration, ILogger<Program> logger, ErrorLogThrottle throttle, CancellationToken cancellationToken)
     {
         var checkedAt = DateTimeOffset.UtcNow;
         var connectionString = configuration.GetConnectionString("Postgres");
@@ -34,13 +35,16 @@ internal static class SystemEndpoints
         try
         {
             await using var connection = new NpgsqlConnection(connectionString); await connection.OpenAsync(cancellationToken);
-            await using var command = new NpgsqlCommand("SELECT current_database(), current_user", connection);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken); await reader.ReadAsync(cancellationToken);
-            return Results.Ok(new { status = "healthy", checkedAt, api = new { status = "healthy" }, database = new { status = "healthy", name = reader.GetString(0), user = reader.GetString(1) } });
+            await using var command = new NpgsqlCommand("SELECT 1", connection);
+            await command.ExecuteScalarAsync(cancellationToken);
+            return Results.Ok(new { status = "healthy", checkedAt, api = new { status = "healthy" }, database = new { status = "healthy" } });
         }
         catch (Exception exception) when (exception is NpgsqlException or TimeoutException or InvalidOperationException)
         {
-            logger.LogWarning(exception, "PostgreSQL sağlık kontrolü başarısız oldu.");
+            if (throttle.ShouldWriteDetails("database_health", TimeSpan.FromMinutes(1)))
+                logger.LogWarning(new EventId(5200, "DatabaseHealthFailure"), "PostgreSQL health check failed. TraceId={TraceId} ExceptionType={ExceptionType} SqlState={SqlState}; repeated identical failures are suppressed for one minute.", context.TraceIdentifier, exception.GetType().Name, exception is PostgresException postgres ? postgres.SqlState : null);
+            else
+                logger.LogDebug(new EventId(5201, "DatabaseHealthFailureRepeated"), "Repeated PostgreSQL health check failure. TraceId={TraceId} ExceptionType={ExceptionType}", context.TraceIdentifier, exception.GetType().Name);
             return Results.Json(new
             {
                 status = "unhealthy", checkedAt, api = new { status = "healthy" },

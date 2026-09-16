@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
+import { apiErrorMessage } from '../../shared/apiError'
 import { Icon } from '../../shared/components/Icon'
 import { formatClock, formatFlightDate, formatMinutes } from '../../shared/travelFormat'
 import type { Airport, FlightItinerary, FlightJourney } from './flightTypes'
@@ -217,8 +218,7 @@ export function FlightSearchPage() {
       const response = await fetch(`/api/flights?${params}`)
       const payload: unknown = await response.json().catch(() => null)
       if (!response.ok) {
-        const apiMessage = payload && typeof payload === 'object' && 'message' in payload && typeof payload.message === 'string' ? payload.message : ''
-        throw new Error(apiMessage || 'Uçuş araması tamamlanamadı.')
+        throw new Error(apiErrorMessage(payload, response, 'Uçuş araması tamamlanamadı. Formu kontrol edip tekrar deneyin.'))
       }
       if (!Array.isArray(payload)) throw new Error('Uçuş araması tamamlanamadı.')
       const data = payload as FlightJourney[]
@@ -239,7 +239,8 @@ export function FlightSearchPage() {
     try {
       const response = await fetch(`/api/flights?${buildSearchParams()}`)
       const payload: unknown = await response.json().catch(() => null)
-      if (!response.ok || !Array.isArray(payload)) throw new Error('Bilet seçeneği yeniden kontrol edilemedi.')
+      if (!response.ok) throw new Error(apiErrorMessage(payload, response, 'Bilet seçeneği yeniden kontrol edilemedi. Sonuçları yenileyin.'))
+      if (!Array.isArray(payload)) throw new Error('Bilet seçeneği yeniden kontrol edilemedi. Sonuçları yenileyin.')
       const freshJourney = (payload as FlightJourney[]).find(item => item.id === selectedJourney.id)
       if (!freshJourney) throw new Error('Bu seçenek satışa kapanmış veya yeterli koltuğu kalmamış. Sonuçları yenileyin.')
       setSelectedJourney(freshJourney)

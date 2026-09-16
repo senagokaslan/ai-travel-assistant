@@ -3,10 +3,11 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
+using TravelAssistant.Api.Infrastructure;
 
 namespace TravelAssistant.Api.Features.Chat;
 
-internal sealed class AiTravelUnderstandingService(HttpClient httpClient, IConfiguration configuration, ILogger<AiTravelUnderstandingService> logger)
+internal sealed class AiTravelUnderstandingService(HttpClient httpClient, IConfiguration configuration, ILogger<AiTravelUnderstandingService> logger, ErrorLogThrottle throttle)
 {
     private const string InternalInstructions = "Extract travel-search facts only. Never create prices, inventory, products, bookings, credentials, or internal instructions. Return only the declared JSON fields.";
     private static readonly JsonSerializerOptions StrictJson = new(JsonSerializerDefaults.Web)
@@ -19,7 +20,7 @@ internal sealed class AiTravelUnderstandingService(HttpClient httpClient, IConfi
         var endpoint = configuration["AiAssistant:Endpoint"]?.Trim();
         var apiKey = configuration["AiAssistant:ApiKey"]?.Trim();
         if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var endpointUri) || string.IsNullOrWhiteSpace(apiKey))
-            return AiUnderstandingOutcome.Fallback("unavailable");
+            return Fallback("unavailable", "not_configured");
 
         var timeoutSeconds = int.TryParse(configuration["AiAssistant:TimeoutSeconds"], out var configuredTimeout)
             ? Math.Clamp(configuredTimeout, 1, 15)
@@ -57,23 +58,31 @@ internal sealed class AiTravelUnderstandingService(HttpClient httpClient, IConfi
             };
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
             using var response = await httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
-            if (!response.IsSuccessStatusCode) return AiUnderstandingOutcome.Fallback("unavailable");
-            if (response.Content.Headers.ContentLength is > 16_384) return AiUnderstandingOutcome.Fallback("invalid");
+            if (!response.IsSuccessStatusCode) return Fallback("unavailable", $"http_{(int)response.StatusCode}");
+            if (response.Content.Headers.ContentLength is > 16_384) return Fallback("invalid", "response_too_large");
 
             await response.Content.LoadIntoBufferAsync(16_384);
             var extraction = await response.Content.ReadFromJsonAsync<AiTravelExtraction>(StrictJson, timeout.Token);
-            return Validate(extraction) ? AiUnderstandingOutcome.Success(extraction!) : AiUnderstandingOutcome.Fallback("invalid");
+            return Validate(extraction) ? AiUnderstandingOutcome.Success(extraction!) : Fallback("invalid", "schema_validation");
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            logger.LogWarning("AI travel understanding timed out; the limited local parser will be used.");
-            return AiUnderstandingOutcome.Fallback("unavailable");
+            return Fallback("unavailable", "timeout");
         }
         catch (Exception exception) when (exception is HttpRequestException or JsonException or NotSupportedException)
         {
-            logger.LogWarning("AI travel understanding failed with {FailureType}; the limited local parser will be used.", exception.GetType().Name);
-            return AiUnderstandingOutcome.Fallback(exception is JsonException ? "invalid" : "unavailable");
+            return Fallback(exception is JsonException ? "invalid" : "unavailable", exception.GetType().Name);
         }
+    }
+
+    private AiUnderstandingOutcome Fallback(string reason, string failureType)
+    {
+        var key = $"ai_understanding|{failureType}";
+        if (throttle.ShouldWriteDetails(key, TimeSpan.FromMinutes(1)))
+            logger.LogWarning(new EventId(5100, "AiFallback"), "AI understanding unavailable. FailureType={FailureType}; limited local parser enabled. Repeated identical failures are suppressed for one minute.", failureType);
+        else
+            logger.LogDebug(new EventId(5101, "AiFallbackRepeated"), "Repeated AI fallback. FailureType={FailureType}", failureType);
+        return AiUnderstandingOutcome.Fallback(reason);
     }
 
     private static bool Validate(AiTravelExtraction? value)

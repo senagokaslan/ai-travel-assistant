@@ -17,6 +17,7 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddHttpClient<AiTravelUnderstandingService>();
 builder.Services.AddSingleton<SessionStore>();
+builder.Services.AddSingleton<ErrorLogThrottle>();
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -39,6 +40,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+app.UseMiddleware<ApiErrorHandlingMiddleware>();
 app.UseCors();
 
 app.MapAuthEndpoints();

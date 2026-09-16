@@ -1,6 +1,7 @@
 using Npgsql;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
+using TravelAssistant.Api.Infrastructure;
 
 namespace TravelAssistant.Api.Features.Auth;
 
@@ -15,13 +16,13 @@ internal static class AuthEndpoints
         return app;
     }
 
-    private static async Task<IResult> RegisterAsync(RegisterRequest request, IConfiguration configuration, CancellationToken cancellationToken)
+    private static async Task<IResult> RegisterAsync(RegisterRequest request, HttpContext context, IConfiguration configuration, CancellationToken cancellationToken)
     {
         var validation = ValidateCredentials(request.Name, request.Email, request.Password);
-        if (validation is not null) return Results.BadRequest(new { message = validation });
+        if (validation is not null) return ApiErrorResults.Create(context, 400, "invalid_account_details", validation, "Bilgileri düzeltip tekrar deneyin.");
         var email = request.Email.Trim().ToLowerInvariant();
         var connectionString = configuration.GetConnectionString("Postgres");
-        if (string.IsNullOrWhiteSpace(connectionString)) return Results.Problem("Kayıt için PostgreSQL bağlantısı yapılandırılmamış.", statusCode: 503);
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new SafeApiException(ApiErrorCatalog.DatabaseUnavailable);
         try
         {
             await using var connection = new NpgsqlConnection(connectionString);
@@ -31,27 +32,22 @@ internal static class AuthEndpoints
             var id = (Guid)(await command.ExecuteScalarAsync(cancellationToken))!;
             return Results.Ok(new { message = "Hesabınız oluşturuldu.", user = new { id, name = request.Name.Trim(), email, role = "user" } });
         }
-        catch (PostgresException exception) when (exception.SqlState == "23505") { return Results.Conflict(new { message = "Bu e-posta adresi zaten kayıtlı. Giriş yapmayı deneyin." }); }
-        catch (NpgsqlException) { return Results.Problem("Kayıt sırasında veritabanına bağlanılamadı.", statusCode: 503); }
+        catch (PostgresException exception) when (exception.SqlState == "23505") { return ApiErrorResults.Create(context, 409, "email_already_registered", "Bu e-posta adresi zaten kayıtlı.", "Yeni hesap açmak yerine giriş yapmayı deneyin."); }
     }
 
-    private static async Task<IResult> LoginAsync(LoginRequest request, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
+    private static async Task<IResult> LoginAsync(LoginRequest request, HttpContext context, IConfiguration configuration, SessionStore sessions, CancellationToken cancellationToken)
     {
         var email = request.Email.Trim().ToLowerInvariant();
-        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+\.[^\s@]+$")) return Results.BadRequest(new { message = "Geçerli bir e-posta adresi yazın." });
-        if (string.IsNullOrEmpty(request.Password)) return Results.BadRequest(new { message = "Parolanızı yazın." });
+        if (!Regex.IsMatch(email, @"^[^\s@]+@[^\s@]+\.[^\s@]+$")) return ApiErrorResults.Create(context, 400, "invalid_account_details", "Geçerli bir e-posta adresi yazın.", "E-posta biçimini kontrol edip tekrar deneyin.");
+        if (string.IsNullOrEmpty(request.Password)) return ApiErrorResults.Create(context, 400, "invalid_account_details", "Parolanızı yazın.", "Parola alanını doldurup tekrar deneyin.");
         var connectionString = configuration.GetConnectionString("Postgres");
-        if (string.IsNullOrWhiteSpace(connectionString)) return Results.Problem("Giriş için PostgreSQL bağlantısı yapılandırılmamış.", statusCode: 503);
-        try
-        {
-            await using var connection = new NpgsqlConnection(connectionString); await connection.OpenAsync(cancellationToken);
-            await using var command = new NpgsqlCommand("SELECT id, name, email, password_hash, role FROM app_users WHERE email = @email", connection); command.Parameters.AddWithValue("email", email);
-            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
-            if (!await reader.ReadAsync(cancellationToken) || !VerifyPassword(request.Password, reader.GetString(3))) return Results.Unauthorized();
-            var user = new SessionUser(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(4));
-            return Results.Ok(new { token = sessions.Create(user), user });
-        }
-        catch (NpgsqlException) { return Results.Problem("Giriş sırasında veritabanına bağlanılamadı.", statusCode: 503); }
+        if (string.IsNullOrWhiteSpace(connectionString)) throw new SafeApiException(ApiErrorCatalog.DatabaseUnavailable);
+        await using var connection = new NpgsqlConnection(connectionString); await connection.OpenAsync(cancellationToken);
+        await using var command = new NpgsqlCommand("SELECT id, name, email, password_hash, role FROM app_users WHERE email = @email", connection); command.Parameters.AddWithValue("email", email);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken) || !VerifyPassword(request.Password, reader.GetString(3))) return Results.Unauthorized();
+        var user = new SessionUser(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(4));
+        return Results.Ok(new { token = sessions.Create(user), user });
     }
 
     private static string? ValidateCredentials(string name, string email, string password)
