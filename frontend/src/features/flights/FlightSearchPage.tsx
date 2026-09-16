@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
 import { apiErrorMessage } from '../../shared/apiError'
@@ -15,12 +15,11 @@ function AirportField({ id, label, value, selectedCode, onChange, onSelect, erro
   const [suggestions, setSuggestions] = useState<Airport[]>([])
   const [searchedTerm, setSearchedTerm] = useState('')
   const [lookupState, setLookupState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [activeIndex, setActiveIndex] = useState(-1)
 
   useEffect(() => {
     const term = value.trim()
-    if (term.length < 2 || selectedCode) {
-      return
-    }
+    if (term.length < 2 || selectedCode) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setLookupState('loading')
@@ -28,6 +27,7 @@ function AirportField({ id, label, value, selectedCode, onChange, onSelect, erro
         .then(async response => {
           if (!response.ok) throw new Error('airport-lookup')
           setSuggestions(await response.json() as Airport[])
+          setActiveIndex(-1)
           setSearchedTerm(term)
           setLookupState('ready')
         })
@@ -43,12 +43,25 @@ function AirportField({ id, label, value, selectedCode, onChange, onSelect, erro
 
   const listId = `${id}-suggestions`
   const helperId = error ? `${id}-error` : selectedCode ? `${id}-selection` : undefined
+  const choose = (airport: Airport) => {
+    onSelect(airport)
+    setSuggestions([])
+    setActiveIndex(-1)
+    setLookupState('idle')
+  }
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') { setSuggestions([]); setActiveIndex(-1); return }
+    if (!suggestions.length || selectedCode) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActiveIndex(index => (index + 1) % suggestions.length) }
+    if (event.key === 'ArrowUp') { event.preventDefault(); setActiveIndex(index => index <= 0 ? suggestions.length - 1 : index - 1) }
+    if (event.key === 'Enter' && activeIndex >= 0) { event.preventDefault(); choose(suggestions[activeIndex]) }
+  }
 
   return (
     <div className="form-field airport-field">
       <label htmlFor={id}>{label}<i>*</i></label>
-      <input id={id} value={value} onChange={event => { onChange(event.target.value); setSuggestions([]); setSearchedTerm(''); setLookupState('idle') }} onKeyDown={event => { if (event.key === 'Escape') setSuggestions([]) }} placeholder="Şehir, havaalanı veya IATA kodu" autoComplete="off" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-expanded={!selectedCode && suggestions.length > 0} aria-invalid={Boolean(error)} aria-describedby={helperId} />
-      {!selectedCode && suggestions.length > 0 && <span id={listId} className="suggestion-popover" role="listbox">{suggestions.map(item => <button type="button" role="option" aria-selected="false" key={item.code} onClick={() => { onSelect(item); setSuggestions([]); setLookupState('idle') }}><b>{item.code}</b><span>{item.city}<small>{item.name} · {item.country}</small></span></button>)}</span>}
+      <input id={id} value={value} onChange={event => { onChange(event.target.value); setSuggestions([]); setActiveIndex(-1); setSearchedTerm(''); setLookupState('idle') }} onKeyDown={onKeyDown} placeholder="Şehir, havaalanı veya IATA kodu" autoComplete="off" role="combobox" aria-autocomplete="list" aria-controls={listId} aria-activedescendant={activeIndex >= 0 ? `${id}-option-${activeIndex}` : undefined} aria-expanded={!selectedCode && suggestions.length > 0} aria-invalid={Boolean(error)} aria-describedby={helperId} aria-busy={lookupState === 'loading'} />
+      {!selectedCode && suggestions.length > 0 && <span id={listId} className="suggestion-popover" role="listbox">{suggestions.map((item, index) => <button id={`${id}-option-${index}`} type="button" role="option" aria-selected={activeIndex === index} key={item.code} onMouseEnter={() => setActiveIndex(index)} onClick={() => choose(item)}><b>{item.code}</b><span>{item.city}<small>{item.name} · {item.country}</small></span></button>)}</span>}
       {lookupState === 'loading' && <small className="airport-hint">Havaalanları aranıyor…</small>}
       {!selectedCode && lookupState === 'ready' && searchedTerm === value.trim() && suggestions.length === 0 && <small className="airport-empty">Bu adla eşleşen aktif havaalanı bulunamadı.</small>}
       {!selectedCode && lookupState === 'error' && searchedTerm === value.trim() && <small className="field-error">Havaalanı listesi alınamadı. Tekrar deneyin.</small>}
@@ -153,6 +166,7 @@ export function FlightSearchPage() {
   const [selectedJourney, setSelectedJourney] = useState<FlightJourney | null>(null)
   const [selectionState, setSelectionState] = useState<'idle' | 'loading'>('idle')
   const [selectionError, setSelectionError] = useState('')
+  const formRef = useRef<HTMLFormElement>(null)
 
   useEffect(() => {
     if (!initialOrigin || !initialDestination || !initialQuery.get('date')) return
@@ -208,7 +222,10 @@ export function FlightSearchPage() {
     else if (infantCount > adultCount) nextErrors.infants = 'Bebek sayısı yetişkin sayısını aşamaz.'
     if (adultCount + childCount + infantCount > 20) nextErrors.passengers = 'Toplam yolcu sayısı 20’yi aşamaz.'
     setErrors(nextErrors)
-    if (Object.keys(nextErrors).length) return
+    if (Object.keys(nextErrors).length) {
+      window.requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
+      return
+    }
 
     setState('loading')
     setResults([])
@@ -284,7 +301,7 @@ export function FlightSearchPage() {
   return (
     <main className="page-frame flight-page" data-testid="flight-page">
       <header className="compact-page-heading"><div><span className="section-label">UÇUŞLAR</span><h1>Uçuş ara</h1></div><p>Yerel katalogdaki örnek seferleri rota, saat ve fiyat bilgileriyle karşılaştır.</p></header>
-      <form className="flight-search-form search-workbench" onSubmit={submit} noValidate aria-busy={state === 'loading'}>
+      <form ref={formRef} className="flight-search-form search-workbench" onSubmit={submit} noValidate aria-busy={state === 'loading'}>
         <div className="workbench-heading"><div><Icon name="plane" size={19} /><h2>Uçuş bilgileri</h2></div><small><i>*</i> Zorunlu alan</small></div>
         <div className="trip-type-toggle" role="radiogroup" aria-label="Yolculuk türü"><button type="button" role="radio" aria-checked={tripType === 'one-way'} className={tripType === 'one-way' ? 'selected' : ''} onClick={() => { setTripType('one-way'); setReturnDate(''); clearError('returnDate'); invalidateResults() }}>Tek yön</button><button type="button" role="radio" aria-checked={tripType === 'round-trip'} className={tripType === 'round-trip' ? 'selected' : ''} onClick={() => { setTripType('round-trip'); invalidateResults() }}>Gidiş dönüş</button></div>
         {Object.keys(errors).length > 0 && <FeedbackState tone="error" title="Arama bilgilerini kontrol edin" message="İşaretli alanları düzelttikten sonra tekrar deneyin." />}
@@ -292,14 +309,14 @@ export function FlightSearchPage() {
           <AirportField id="flight-origin" label="Nereden" value={origin} selectedCode={originAirport?.code ?? ''} onChange={value => { setOrigin(value); setOriginAirport(null); clearError('origin'); invalidateResults() }} onSelect={airport => { setOrigin(`${airport.city} — ${airport.name} (${airport.code})`); setOriginAirport(airport); clearError('origin'); invalidateResults() }} error={errors.origin} />
           <button className="swap-route" type="button" aria-label="Kalkış ve varışı değiştir" onClick={() => { setOrigin(destination); setDestination(origin); setOriginAirport(destinationAirport); setDestinationAirport(originAirport); clearError('origin'); clearError('destination'); invalidateResults() }}><Icon name="swap" size={18} /></button>
           <AirportField id="flight-destination" label="Nereye" value={destination} selectedCode={destinationAirport?.code ?? ''} onChange={value => { setDestination(value); setDestinationAirport(null); clearError('destination'); invalidateResults() }} onSelect={airport => { setDestination(`${airport.city} — ${airport.name} (${airport.code})`); setDestinationAirport(airport); clearError('destination'); invalidateResults() }} error={errors.destination} />
-          <label className="form-field"><span>Gidiş tarihi<i>*</i></span><input type="date" min={localToday()} value={departureDate} onChange={event => { const nextDate = event.target.value; setDepartureDate(nextDate); if (returnDate && returnDate < nextDate) setReturnDate(''); clearError('departureDate'); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.departureDate)} />{errors.departureDate && <small className="field-error">{errors.departureDate}</small>}</label>
-          {tripType === 'round-trip' && <label className="form-field"><span>Dönüş tarihi<i>*</i></span><input type="date" min={departureDate || localToday()} value={returnDate} onChange={event => { setReturnDate(event.target.value); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.returnDate)} />{errors.returnDate && <small className="field-error">{errors.returnDate}</small>}</label>}
+          <label className="form-field"><span>Gidiş tarihi<i>*</i></span><input id="flight-departure-date" type="date" min={localToday()} value={departureDate} onChange={event => { const nextDate = event.target.value; setDepartureDate(nextDate); if (returnDate && returnDate < nextDate) setReturnDate(''); clearError('departureDate'); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.departureDate)} aria-describedby={errors.departureDate ? 'flight-departure-date-error' : undefined} />{errors.departureDate && <small id="flight-departure-date-error" className="field-error">{errors.departureDate}</small>}</label>
+          {tripType === 'round-trip' && <label className="form-field"><span>Dönüş tarihi<i>*</i></span><input id="flight-return-date" type="date" min={departureDate || localToday()} value={returnDate} onChange={event => { setReturnDate(event.target.value); clearError('returnDate'); invalidateResults() }} aria-invalid={Boolean(errors.returnDate)} aria-describedby={errors.returnDate ? 'flight-return-date-error' : undefined} />{errors.returnDate && <small id="flight-return-date-error" className="field-error">{errors.returnDate}</small>}</label>}
         </div>
         <div className="flight-passenger-row">
           <div className="passenger-heading"><strong>Yolcular</strong><small>Bebekler yetişkin kucağında seyahat eder.</small></div>
-          <label className="form-field"><span>Yetişkin<i>*</i></span><select value={adults} onChange={event => { setAdults(event.target.value); clearError('adults'); clearError('infants'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select>{errors.adults && <small className="field-error">{errors.adults}</small>}</label>
-          <label className="form-field"><span>Çocuk (2–11)</span><select value={children} onChange={event => { setChildren(event.target.value); clearError('children'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select>{errors.children && <small className="field-error">{errors.children}</small>}</label>
-          <label className="form-field"><span>Bebek (0–1)</span><select value={infants} onChange={event => { setInfants(event.target.value); clearError('infants'); clearError('passengers'); invalidateResults() }}>{Array.from({ length: 10 }, (_, index) => <option key={index} value={index}>{index} bebek</option>)}</select>{errors.infants && <small className="field-error">{errors.infants}</small>}</label>
+          <label className="form-field"><span>Yetişkin<i>*</i></span><select id="flight-adults" value={adults} onChange={event => { setAdults(event.target.value); clearError('adults'); clearError('infants'); clearError('passengers'); invalidateResults() }} aria-invalid={Boolean(errors.adults)} aria-describedby={errors.adults ? 'flight-adults-error' : undefined}>{Array.from({ length: 9 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select>{errors.adults && <small id="flight-adults-error" className="field-error">{errors.adults}</small>}</label>
+          <label className="form-field"><span>Çocuk (2–11)</span><select id="flight-children" value={children} onChange={event => { setChildren(event.target.value); clearError('children'); clearError('passengers'); invalidateResults() }} aria-invalid={Boolean(errors.children)} aria-describedby={errors.children ? 'flight-children-error' : undefined}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select>{errors.children && <small id="flight-children-error" className="field-error">{errors.children}</small>}</label>
+          <label className="form-field"><span>Bebek (0–1)</span><select id="flight-infants" value={infants} onChange={event => { setInfants(event.target.value); clearError('infants'); clearError('passengers'); invalidateResults() }} aria-invalid={Boolean(errors.infants)} aria-describedby={errors.infants ? 'flight-infants-error' : undefined}>{Array.from({ length: 10 }, (_, index) => <option key={index} value={index}>{index} bebek</option>)}</select>{errors.infants && <small id="flight-infants-error" className="field-error">{errors.infants}</small>}</label>
           <button className="primary-action flight-submit" type="submit" disabled={state === 'loading'}><Icon name="search" size={17} />{state === 'loading' ? 'Aranıyor…' : 'Uçuş ara'}</button>
         </div>
         {errors.passengers && <small className="field-error passenger-total-error">{errors.passengers}</small>}
@@ -332,5 +349,5 @@ export function FlightSearchPage() {
 }
 
 function LoadingCards({ label }: { label: string }) {
-  return <div className="loading-results" aria-label={label}><div className="loading-label"><span className="spinner" aria-hidden="true" />{label}</div>{[1, 2, 3].map(item => <div className="skeleton-card" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
+  return <div className="loading-results" role="status" aria-live="polite" aria-label={label}><div className="loading-label"><span className="spinner" aria-hidden="true" />{label}</div>{[1, 2, 3].map(item => <div className="skeleton-card" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
 }

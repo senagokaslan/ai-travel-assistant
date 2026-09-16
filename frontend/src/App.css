@@ -1,6 +1,6 @@
 #root { min-height: 100vh; }
 
-.app-shell { min-height: 100vh; display: flex; flex-direction: column; overflow: clip; background: #f7f8f5; }
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; overflow-x: clip; background: #f7f8f5; }
 .page-container, .page-frame, .topbar-inner, .footer-inner, .footer-bottom, .service-alert { width: min(1180px, calc(100% - 40px)); margin-inline: auto; }
 
 .topbar { position: sticky; top: 0; z-index: 20; background: rgba(255, 255, 255, .94); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px); }
@@ -782,6 +782,7 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .auth-context .brand-copy strong { color: #fff; }
 .auth-context .brand-copy small { color: #b6c0d2; }
 .auth-context .brand-mark { color: var(--brand); background: #fff; }
+.auth-context .section-label { color: #b8c6f5; }
 .auth-disclaimer > span { color: var(--brand-dark); background: #dfe7fb; }
 
 .hotel-detail-page { padding-block: 30px 70px; }
@@ -952,6 +953,22 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
 .booking-cancel-confirm p, .booking-cancel-unavailable p { margin: 0; color: #7a5660; font-size: 9px; line-height: 1.5; }
 .booking-cancel-confirm .secondary-action { width: 100%; }
 
+/* Responsive and accessible interaction safeguards shared by every main flow. */
+.app-shell :where(h1, h2, h3, p, strong, small, span) { overflow-wrap: anywhere; }
+.app-shell img { max-width: 100%; height: auto; }
+.brand, .main-nav a, .login-link, .profile-link, .primary-action, .secondary-action, .quiet-button, .danger-action,
+.auth-tabs button, .chat-shortcuts a, .filter-panel-heading button, .footer-inner nav a, .trip-type-toggle button { min-height: 44px; }
+.brand { min-width: 44px; }
+.swap-route { width: 44px; height: 44px; }
+.back-home { min-height: 44px; display: inline-flex; align-items: center; }
+.footer-inner nav a, .filter-panel-heading button { display: inline-flex; align-items: center; }
+.hotel-title-row, .hotel-title-row > div, .journey-option-heading > div, .booking-product-heading > div { min-width: 0; }
+.suggestion-popover button[aria-selected="true"] { background: var(--brand-soft); }
+.trip-type-toggle button, .auth-tabs button { color: #536075; }
+.chat-routing-state { font-size: 11px; line-height: 1.4; }
+.chat-error { font-size: 12px; line-height: 1.4; }
+.footer-bottom { font-size: 11px; }
+
 @media (max-width: 980px) {
   .topbar-inner { grid-template-columns: auto 1fr auto; }
   .home-start-heading { gap: 38px; }
@@ -1023,6 +1040,10 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .booking-facts > div:nth-child(3) { border-left: 0; border-top: 1px solid var(--line); }
   .booking-facts > div:nth-child(4) { border-top: 1px solid var(--line); }
   .booking-person-fields, .booking-person-fields:has(> :nth-child(3)), .booking-person-fields:has(> :nth-child(4)), .booking-contact-fields { grid-template-columns: 1fr 1fr; }
+  .main-nav a { min-height: 44px; }
+  .footer-inner nav a { padding-block: 10px; }
+  .results-search-bar > .primary-action, .result-toolbar select, .detail-link, .feedback-action, .feedback-state .secondary-action { min-height: 44px; }
+  .detail-link { justify-content: center; }
 }
 
 @media (max-width: 540px) {
@@ -1125,5 +1146,5 @@ h1, h2, h3 { margin-top: 0; color: var(--ink); font-family: Manrope, sans-serif;
   .chat-shortcuts a { flex: 0 0 auto; }
   .chat-workspace .chat-composer { padding: 11px 12px; grid-template-columns: 1fr 42px; }
   .chat-workspace .chat-composer > span { right: 62px; bottom: 17px; }
-  .chat-workspace .chat-composer button { min-height: 42px; }
+  .chat-workspace .chat-composer button { min-height: 44px; }
 }

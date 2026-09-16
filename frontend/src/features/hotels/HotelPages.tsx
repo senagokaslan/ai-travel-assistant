@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { FeedbackState } from '../../shared/components/FeedbackState'
 import { apiErrorMessage } from '../../shared/apiError'
@@ -131,8 +131,8 @@ function validate(form: SearchForm) {
   return errors
 }
 
-function ErrorText({ message }: { message?: string }) {
-  return message ? <small className="field-error">{message}</small> : null
+function ErrorText({ message, id }: { message?: string; id?: string }) {
+  return message ? <small id={id} className="field-error">{message}</small> : null
 }
 
 function ResultsFilters({ form, onUpdate, onToggleFeature, onClear }: { form: SearchForm; onUpdate: (key: string, value: string) => void; onToggleFeature: (feature: string) => void; onClear: () => void }) {
@@ -148,11 +148,13 @@ function ResultsFilters({ form, onUpdate, onToggleFeature, onClear }: { form: Se
 
 export function HotelSearchPage() {
   const navigate = useNavigate()
+  const formRef = useRef<HTMLFormElement>(null)
   const [searchParams] = useSearchParams()
   const [form, setForm] = useState<SearchForm>(() => formFromParams(searchParams))
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [checking, setChecking] = useState(false)
   const [suggestions, setSuggestions] = useState<LocationOption[]>([])
+  const [activeSuggestion, setActiveSuggestion] = useState(-1)
   const [showFilters, setShowFilters] = useState(Boolean(form.stars || form.rating || form.minPrice || form.maxPrice || form.board || form.features.length))
   const activeFilterCount = [form.stars, form.rating, form.minPrice, form.maxPrice, form.board, ...form.features].filter(Boolean).length
 
@@ -162,11 +164,32 @@ export function HotelSearchPage() {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       fetch(`/api/hotels/locations?q=${encodeURIComponent(term)}`, { signal: controller.signal })
-        .then(async response => response.ok ? setSuggestions(await response.json() as LocationOption[]) : setSuggestions([]))
+        .then(async response => {
+          setSuggestions(response.ok ? await response.json() as LocationOption[] : [])
+          setActiveSuggestion(-1)
+        })
         .catch(() => undefined)
     }, 180)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [form.location])
+
+  const chooseLocation = (option: LocationOption) => {
+    update('location', option.label)
+    setSuggestions([])
+    setActiveSuggestion(-1)
+  }
+
+  const handleLocationKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Escape') { setSuggestions([]); setActiveSuggestion(-1); return }
+    if (!suggestions.length) return
+    if (event.key === 'ArrowDown') { event.preventDefault(); setActiveSuggestion(index => (index + 1) % suggestions.length) }
+    if (event.key === 'ArrowUp') { event.preventDefault(); setActiveSuggestion(index => index <= 0 ? suggestions.length - 1 : index - 1) }
+    if (event.key === 'Enter' && activeSuggestion >= 0) { event.preventDefault(); chooseLocation(suggestions[activeSuggestion]) }
+  }
+
+  const focusFirstInvalidField = () => {
+    window.requestAnimationFrame(() => formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')?.focus())
+  }
 
   const update = (key: keyof SearchForm, value: string | string[]) => {
     setForm(current => ({ ...current, [key]: value }))
@@ -183,7 +206,7 @@ export function HotelSearchPage() {
     event.preventDefault()
     const nextErrors = validate(form)
     setErrors(nextErrors)
-    if (Object.keys(nextErrors).length) return
+    if (Object.keys(nextErrors).length) { focusFirstInvalidField(); return }
     setChecking(true)
     try {
       const response = await fetch(`/api/hotels/locations?q=${encodeURIComponent(form.location.trim())}`)
@@ -193,6 +216,7 @@ export function HotelSearchPage() {
       const supported = options.some(option => [option.label, option.city, option.district ?? ''].some(value => normalize(value) === term))
       if (!supported) {
         setErrors({ location: 'Bu şehir veya otel katalogda bulunmuyor. Önerilerden birini seçin.' })
+        focusFirstInvalidField()
         return
       }
       navigate(`/hotels/results?${toParams(form).toString()}`)
@@ -204,22 +228,22 @@ export function HotelSearchPage() {
   return (
     <main className="page-frame hotel-search-page" data-testid="hotel-search-page">
       <header className="compact-page-heading"><div><span className="section-label">OTELLER</span><h1>Konaklama ara</h1></div><p>Şehir, tarih ve misafir bilgilerini gir; tüm gecelerde uygun olan yerel katalog seçeneklerini karşılaştır.</p></header>
-      <form className="search-card hotel-search-form" onSubmit={submit} noValidate aria-busy={checking}>
+      <form ref={formRef} className="search-card hotel-search-form" onSubmit={submit} noValidate aria-busy={checking}>
         <div className="search-card-heading"><div><span className="section-label">KONAKLAMA BİLGİLERİ</span><h2>Nerede kalmak istersin?</h2></div><span><i>*</i> Zorunlu alan</span></div>
         {Object.keys(errors).length > 0 && <FeedbackState tone="error" title="Arama bilgilerini kontrol edin" message={errors.form ?? 'İşaretli alanları düzelttikten sonra yeniden arayın.'} />}
         <div className="hotel-form-grid">
-          <label className="form-field location-field"><span>Şehir veya otel<i>*</i></span><input value={form.location} onChange={event => { update('location', event.target.value); if (event.target.value.trim().length < 2) setSuggestions([]) }} placeholder="Örn. İstanbul veya Galata Meydan Otel" autoComplete="off" required aria-invalid={Boolean(errors.location)} />
-            {suggestions.length > 0 && <span className="suggestion-popover location-suggestions">{suggestions.map(option => <button type="button" key={option.key} onClick={() => { update('location', option.label); setSuggestions([]) }}><b>{option.type === 'city' ? 'Şehir' : 'Otel'}</b><span>{option.label}<small>{option.type === 'hotel' ? `${option.city}${option.district ? ` · ${option.district}` : ''}` : 'Tüm katalog seçenekleri'}</small></span></button>)}</span>}
-            <ErrorText message={errors.location} />
+          <label className="form-field location-field"><span>Şehir veya otel<i>*</i></span><input id="hotel-location" value={form.location} onChange={event => { update('location', event.target.value); setActiveSuggestion(-1); if (event.target.value.trim().length < 2) setSuggestions([]) }} onKeyDown={handleLocationKeyDown} placeholder="Örn. İstanbul veya Galata Meydan Otel" autoComplete="off" required role="combobox" aria-autocomplete="list" aria-controls="hotel-location-suggestions" aria-activedescendant={activeSuggestion >= 0 ? `hotel-location-option-${activeSuggestion}` : undefined} aria-expanded={suggestions.length > 0} aria-invalid={Boolean(errors.location)} aria-describedby={errors.location ? 'hotel-location-error' : undefined} />
+            {suggestions.length > 0 && <span id="hotel-location-suggestions" className="suggestion-popover location-suggestions" role="listbox">{suggestions.map((option, index) => <button id={`hotel-location-option-${index}`} type="button" role="option" aria-selected={activeSuggestion === index} key={option.key} onMouseEnter={() => setActiveSuggestion(index)} onClick={() => chooseLocation(option)}><b>{option.type === 'city' ? 'Şehir' : 'Otel'}</b><span>{option.label}<small>{option.type === 'hotel' ? `${option.city}${option.district ? ` · ${option.district}` : ''}` : 'Tüm katalog seçenekleri'}</small></span></button>)}</span>}
+            <ErrorText id="hotel-location-error" message={errors.location} />
           </label>
-          <label className="form-field"><span>Giriş tarihi<i>*</i></span><input type="date" min={localToday()} value={form.checkIn} onChange={event => update('checkIn', event.target.value)} required aria-invalid={Boolean(errors.checkIn)} /><ErrorText message={errors.checkIn} /></label>
-          <label className="form-field"><span>Çıkış tarihi<i>*</i></span><input type="date" min={form.checkIn ? addDays(form.checkIn, 1) : localToday()} max={form.checkIn ? addDays(form.checkIn, MAX_NIGHTS) : undefined} value={form.checkOut} onChange={event => update('checkOut', event.target.value)} required aria-invalid={Boolean(errors.checkOut)} /><ErrorText message={errors.checkOut} /></label>
+          <label className="form-field"><span>Giriş tarihi<i>*</i></span><input id="hotel-check-in" type="date" min={localToday()} value={form.checkIn} onChange={event => update('checkIn', event.target.value)} required aria-invalid={Boolean(errors.checkIn)} aria-describedby={errors.checkIn ? 'hotel-check-in-error' : undefined} /><ErrorText id="hotel-check-in-error" message={errors.checkIn} /></label>
+          <label className="form-field"><span>Çıkış tarihi<i>*</i></span><input id="hotel-check-out" type="date" min={form.checkIn ? addDays(form.checkIn, 1) : localToday()} max={form.checkIn ? addDays(form.checkIn, MAX_NIGHTS) : undefined} value={form.checkOut} onChange={event => update('checkOut', event.target.value)} required aria-invalid={Boolean(errors.checkOut)} aria-describedby={errors.checkOut ? 'hotel-check-out-error' : undefined} /><ErrorText id="hotel-check-out-error" message={errors.checkOut} /></label>
         </div>
         <div className="occupancy-grid" aria-label="Misafir bilgileri">
           <div className="occupancy-title"><span className="section-label">MİSAFİRLER</span><p>Her oda için en az bir yetişkin seçin.</p></div>
-          <label className="form-field"><span>Oda<i>*</i></span><select value={form.rooms} onChange={event => update('rooms', event.target.value)} aria-invalid={Boolean(errors.rooms)}>{Array.from({ length: 8 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} oda</option>)}</select><ErrorText message={errors.rooms} /></label>
-          <label className="form-field"><span>Yetişkin<i>*</i></span><select value={form.adults} onChange={event => update('adults', event.target.value)} aria-invalid={Boolean(errors.adults)}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select><ErrorText message={errors.adults} /></label>
-          <label className="form-field"><span>Çocuk<i>*</i></span><select value={form.childCount} onChange={event => updateChildCount(event.target.value)} aria-invalid={Boolean(errors.childCount)}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select><ErrorText message={errors.childCount} /></label>
+          <label className="form-field"><span>Oda<i>*</i></span><select id="hotel-rooms" value={form.rooms} onChange={event => update('rooms', event.target.value)} aria-invalid={Boolean(errors.rooms)} aria-describedby={errors.rooms ? 'hotel-rooms-error' : undefined}>{Array.from({ length: 8 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} oda</option>)}</select><ErrorText id="hotel-rooms-error" message={errors.rooms} /></label>
+          <label className="form-field"><span>Yetişkin<i>*</i></span><select id="hotel-adults" value={form.adults} onChange={event => update('adults', event.target.value)} aria-invalid={Boolean(errors.adults)} aria-describedby={errors.adults ? 'hotel-adults-error' : undefined}>{Array.from({ length: 20 }, (_, index) => <option key={index + 1} value={index + 1}>{index + 1} yetişkin</option>)}</select><ErrorText id="hotel-adults-error" message={errors.adults} /></label>
+          <label className="form-field"><span>Çocuk<i>*</i></span><select id="hotel-children" value={form.childCount} onChange={event => updateChildCount(event.target.value)} aria-invalid={Boolean(errors.childCount)} aria-describedby={errors.childCount ? 'hotel-children-error' : undefined}>{Array.from({ length: 9 }, (_, index) => <option key={index} value={index}>{index} çocuk</option>)}</select><ErrorText id="hotel-children-error" message={errors.childCount} /></label>
         </div>
         {form.childAges.length > 0 && <fieldset className="child-ages"><legend>Çocuk yaşları <i>*</i></legend><p>Konaklama başlangıcındaki yaşları seçin.</p><div>{form.childAges.map((age, index) => <label className="form-field" key={index}><span>{index + 1}. çocuk</span><select value={age} onChange={event => { const ages = [...form.childAges]; ages[index] = event.target.value; update('childAges', ages) }} aria-label={`${index + 1}. çocuğun yaşı`}><option value="">Yaş seçin</option>{Array.from({ length: 18 }, (_, ageValue) => <option key={ageValue} value={ageValue}>{ageValue} yaş</option>)}</select></label>)}</div><ErrorText message={errors.childAges} /></fieldset>}
 
@@ -239,7 +263,7 @@ export function HotelSearchPage() {
 }
 
 function HotelLoadingCards() {
-  return <div className="loading-results" aria-label="Uygun oteller aranıyor"><div className="loading-label"><span className="spinner" aria-hidden="true" />Uygun oteller aranıyor</div>{[1, 2, 3].map(item => <div className="skeleton-card hotel-skeleton" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
+  return <div className="loading-results" role="status" aria-live="polite" aria-label="Uygun oteller aranıyor"><div className="loading-label"><span className="spinner" aria-hidden="true" />Uygun oteller aranıyor</div>{[1, 2, 3].map(item => <div className="skeleton-card hotel-skeleton" key={item}><span /><div><i /><i /><i /></div><b /></div>)}</div>
 }
 
 export function HotelResultsPage() {

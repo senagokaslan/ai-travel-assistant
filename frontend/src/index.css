@@ -9,7 +9,7 @@
   -webkit-font-smoothing: antialiased;
   --ink: #172033;
   --muted: #667085;
-  --soft-muted: #8b95a7;
+  --soft-muted: #667085;
   --brand: #3157b7;
   --brand-dark: #24428d;
   --brand-soft: #edf2ff;
@@ -34,11 +34,11 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; background: #f5f7fb; }
-body { margin: 0; min-width: 320px; min-height: 100vh; background: #f5f7fb; }
+body { margin: 0; min-width: 0; min-height: 100vh; background: #f5f7fb; }
 button, input, select, textarea { font: inherit; }
 button, a { -webkit-tap-highlight-color: transparent; }
 a { color: inherit; }
-button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid rgba(49, 87, 183, .28); outline-offset: 3px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 3px solid #3157b7; outline-offset: 3px; }
 ::selection { color: #fff; background: #3157b7; }
 
 @media (prefers-reduced-motion: reduce) {
